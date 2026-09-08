@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
 
@@ -70,3 +71,67 @@ class Problem(ABC):
             Array of shape ``(n_points, 2)`` of mutually nondominated
             objective vectors on the true Pareto front.
         """
+
+    def describe(self, n_samples: int = 256, seed: int = 0) -> dict[str, Any]:
+        """Estimate cheap landscape statistics by uniform random sampling.
+
+        Draws ``n_samples`` seeded uniform random points from the decision
+        space and evaluates them, summarizing the problem without running
+        any search. The statistics give a controller problem-identifying
+        context (Phase 1.5) at negligible cost:
+
+        * ``n_vars``: decision-space dimension; scales the default mutation
+          probability (``1 / n_vars``) and the search difficulty.
+        * ``n_objs``: number of objectives (2 for all current benchmarks).
+        * ``bounds_width_mean``: mean of ``upper_bounds - lower_bounds``;
+          the length scale of the decision space.
+        * ``f1_mean`` / ``f2_mean``: objective locations under uniform
+          sampling (objective offset / scale indicator).
+        * ``f1_std`` / ``f2_std``: objective spreads; proxy for how
+          strongly the landscape responds to decision perturbations.
+        * ``f_corr``: Pearson correlation between f1 and f2 over the
+          samples; near -1 indicates strongly conflicting objectives
+          (trade-off dominated landscape), near +1 aligned ones. Set to
+          0.0 when either objective has zero variance (correlation
+          undefined).
+        * ``ideal_est`` / ``nadir_est``: per-objective min / max over the
+          samples, as ``[f1, f2]`` lists; rough anchors of the
+          objective-space extent (sampling estimates, not the true
+          ideal/nadir points).
+
+        Args:
+            n_samples: Number of uniform random evaluation points; >= 1.
+            seed: Seed of the sampling RNG. Identical seeds give identical
+                results.
+
+        Returns:
+            Dict with exactly the keys listed above.
+
+        Raises:
+            ValueError: If ``n_samples`` < 1.
+        """
+        if int(n_samples) < 1:
+            raise ValueError(f"n_samples must be >= 1, got {n_samples}")
+        rng = np.random.default_rng(seed)
+        lower = np.asarray(self.lower_bounds, dtype=float)
+        upper = np.asarray(self.upper_bounds, dtype=float)
+        xs = rng.uniform(lower, upper, size=(int(n_samples), self.n_vars))
+        objectives = np.asarray([self.evaluate(x) for x in xs], dtype=float)
+        f1 = objectives[:, 0]
+        f2 = objectives[:, 1]
+        if int(n_samples) >= 2 and f1.std() > 0.0 and f2.std() > 0.0:
+            f_corr = float(np.corrcoef(f1, f2)[0, 1])
+        else:
+            f_corr = 0.0
+        return {
+            "n_vars": int(self.n_vars),
+            "n_objs": int(self.n_objs),
+            "bounds_width_mean": float(np.mean(upper - lower)),
+            "f1_mean": float(f1.mean()),
+            "f1_std": float(f1.std()),
+            "f2_mean": float(f2.mean()),
+            "f2_std": float(f2.std()),
+            "f_corr": f_corr,
+            "ideal_est": [float(f1.min()), float(f2.min())],
+            "nadir_est": [float(f1.max()), float(f2.max())],
+        }

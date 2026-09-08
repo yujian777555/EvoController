@@ -2,8 +2,9 @@
 
 Runs ``experiments.generate_dataset.main`` with small settings (one problem,
 one seed, 20 generations, pop 40) into a temporary directory and validates
-the produced trajectory JSON and the invocation index, for both the fixed
-policy (Phase-0 baseline) and the random action policy (Phase-1).
+the produced trajectory JSON and the invocation index, for the fixed policy
+(Phase-0 baseline), the random action policy (Phase-1), and the full
+operator + exploration action space (Phase-1.5).
 
 Settings note: with pop 20 / 5 generations the ZDT1 population never reaches
 f2 < 1.1, so hypervolume against ref point (1.1, 1.1) stays exactly 0.0 and
@@ -80,9 +81,13 @@ def test_config_fully_determines_run(trajectory: dict) -> None:
     assert ops["mutation_probability"] == pytest.approx(1.0 / config["n_vars"])
     assert ops["eta_c"] == pytest.approx(defaults.eta_c)
     assert ops["eta_m"] == pytest.approx(defaults.eta_m)
+    assert ops["gaussian_sigma"] == pytest.approx(defaults.gaussian_sigma)
     assert config["policy"] == "fixed"
+    assert config["action_space"] == "pm"
     assert config["pm_mult_range"] == pytest.approx([0.5, 5.0])
     assert config["base_mutation_prob"] == pytest.approx(1.0 / config["n_vars"])
+    assert config["exploration_ranges"]["polynomial_eta_m"] == pytest.approx([2.0, 50.0])
+    assert config["exploration_ranges"]["gaussian_sigma"] == pytest.approx([0.02, 0.3])
 
 
 def test_transitions_length_and_actions(trajectory: dict) -> None:
@@ -92,8 +97,16 @@ def test_transitions_length_and_actions(trajectory: dict) -> None:
     assert [t["generation"] for t in transitions] == list(range(_GENERATIONS + 1))
     expected_p_m = 1.0 / trajectory["config"]["n_vars"]
     for t in transitions:
+        # The fixed-policy action is the constant resolved config default.
+        # (The algorithm-level action schema is the 3-key Phase-1.5 shape;
+        # the recorder persists mutation_operator/mutation_probability and,
+        # once its schema stores extra action keys, exploration_strength.)
         assert t["action"]["mutation_operator"] == "polynomial"
         assert t["action"]["mutation_probability"] == pytest.approx(expected_p_m)
+        if "exploration_strength" in t["action"]:
+            assert t["action"]["exploration_strength"] == pytest.approx(
+                OperatorConfig().eta_m
+            )
 
 
 def test_generation_zero_reward_is_zero(trajectory: dict) -> None:
@@ -174,9 +187,10 @@ def test_random_policy_varies_mutation_probability(random_trajectory: dict) -> N
 
 
 def test_random_policy_config_keys(random_trajectory: dict) -> None:
-    """Random-policy config records policy, sampling range, and base pm."""
+    """Random-policy config records policy, action space, range, base pm."""
     config = random_trajectory["config"]
     assert config["policy"] == "random"
+    assert config["action_space"] == "pm"
     assert config["pm_mult_range"] == pytest.approx([0.5, 5.0])
     base_pm = 1.0 / config["n_vars"]
     assert config["base_mutation_prob"] == pytest.approx(base_pm)
@@ -213,3 +227,76 @@ def test_random_policy_different_seed_differs(random_trajectory: dict, tmp_path:
     pms_a = [t["action"]["mutation_probability"] for t in random_trajectory["transitions"]]
     pms_b = [t["action"]["mutation_probability"] for t in other["transitions"]]
     assert pms_a != pms_b
+
+
+# --- Phase 1.5: full action space (operator + exploration strength) ---
+
+_FULL_SEED = 20
+_FULL_GENERATIONS = 5
+
+
+def _run_full(out_dir: Path, seed: int) -> None:
+    """Run the full action space with tiny settings into ``out_dir``."""
+    generate_dataset.main(
+        [
+            "--problems", _PROBLEM,
+            "--seeds", str(seed),
+            "--generations", str(_FULL_GENERATIONS),
+            "--pop-size", str(_POP_SIZE),
+            "--action-space", "full",
+            "--out-dir", str(out_dir),
+        ]
+    )
+
+
+@pytest.fixture(scope="module")
+def full_trajectory(tmp_path_factory: pytest.TempPathFactory) -> dict:
+    """Generate one tiny full-action-space trajectory and return it."""
+    out_dir = tmp_path_factory.mktemp("trajectory_full")
+    _run_full(out_dir, _FULL_SEED)
+    return _load_trajectory(out_dir, _FULL_SEED)
+
+
+def test_full_action_space_operators_and_pm(full_trajectory: dict) -> None:
+    """Full space: operators come from {polynomial, gaussian} and pm varies."""
+    transitions = full_trajectory["transitions"]
+    assert len(transitions) == _FULL_GENERATIONS + 1
+    operators = {t["action"]["mutation_operator"] for t in transitions}
+    assert operators <= {"polynomial", "gaussian"}
+    pms = np.array([t["action"]["mutation_probability"] for t in transitions])
+    assert float(np.std(pms)) > 0.0
+    # Generation 0 is recorded before any step: resolved default action.
+    base_pm = 1.0 / full_trajectory["config"]["n_vars"]
+    assert pms[0] == pytest.approx(base_pm)
+    # Sampled probabilities lie within the widened multiplier band.
+    sampled = pms[1:]
+    assert np.all(sampled >= base_pm * 0.25)
+    assert np.all(sampled <= base_pm * 8.0)
+
+
+def test_full_action_space_config_keys(full_trajectory: dict) -> None:
+    """Full mode records the action space and the widened pm range."""
+    config = full_trajectory["config"]
+    assert config["action_space"] == "full"
+    assert config["pm_mult_range"] == pytest.approx([0.25, 8.0])
+    assert config["operators"]["gaussian_sigma"] == pytest.approx(
+        OperatorConfig().gaussian_sigma
+    )
+    assert config["exploration_ranges"]["polynomial_eta_m"] == pytest.approx([2.0, 50.0])
+    assert config["exploration_ranges"]["gaussian_sigma"] == pytest.approx([0.02, 0.3])
+
+
+def test_full_action_space_reproducible(tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Same seed + full action space -> identical action sequences and states."""
+    dir_a = tmp_path_factory.mktemp("full_repro_a")
+    dir_b = tmp_path_factory.mktemp("full_repro_b")
+    _run_full(dir_a, _FULL_SEED)
+    _run_full(dir_b, _FULL_SEED)
+    traj_a = _load_trajectory(dir_a, _FULL_SEED)
+    traj_b = _load_trajectory(dir_b, _FULL_SEED)
+    actions_a = [t["action"] for t in traj_a["transitions"]]
+    actions_b = [t["action"] for t in traj_b["transitions"]]
+    assert actions_a == actions_b
+    states_a = [t["state"] for t in traj_a["transitions"]]
+    states_b = [t["state"] for t in traj_b["transitions"]]
+    assert states_a == states_b

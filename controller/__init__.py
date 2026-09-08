@@ -9,11 +9,15 @@ from controller.dataset import (
     train_val_split,
 )
 from controller.mlp_controller import ConstantController, MLPController
-from controller.state_encoder import STATE_FEATURES, StateEncoder
+from controller.problem_features import PROBLEM_FEATURE_NAMES, problem_feature_vector
+from controller.state_encoder import STATE_FEATURES, ProblemAwareEncoder, StateEncoder
 
 __all__ = [
     "STATE_FEATURES",
     "StateEncoder",
+    "ProblemAwareEncoder",
+    "PROBLEM_FEATURE_NAMES",
+    "problem_feature_vector",
     "load_trajectories",
     "merge_state_reward",
     "build_supervised_samples",

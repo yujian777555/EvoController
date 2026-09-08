@@ -11,9 +11,9 @@ Conventions (required by the EvoController trajectory contract):
 
 * All objectives are MINIMIZED (see ``benchmarks.base.Problem``).
 * One generation = offspring creation (binary tournament selection + SBX
-  crossover + polynomial mutation) followed by elitist (mu + lambda)
-  environmental selection using fast non-dominated sorting and crowding
-  distance.
+  crossover + polynomial or Gaussian mutation) followed by elitist
+  (mu + lambda) environmental selection using fast non-dominated sorting
+  and crowding distance.
 * All stochastic draws go through a single ``numpy.random.Generator``
   seeded with PCG64, so a run is bit-for-bit reproducible given the seed.
 """
@@ -123,14 +123,20 @@ class OperatorConfig:
             supported in Phase 0.
         crossover_prob: Probability of applying crossover to a parent pair
             (p_c in Deb et al. 2002); parents are cloned otherwise.
-        mutation_operator: Only ``"polynomial"`` mutation is supported in
-            Phase 0.
+        mutation_operator: ``"polynomial"`` (Deb & Goyal 1996) or
+            ``"gaussian"`` (range-scaled Gaussian perturbation).
         mutation_prob: Per-variable mutation probability (p_m). ``None``
             resolves to the standard default ``1.0 / n_vars``.
         eta_c: SBX distribution index; larger values produce offspring
             closer to the parents.
         eta_m: Polynomial mutation distribution index; larger values produce
-            smaller perturbations.
+            smaller perturbations. Acts as the exploration strength of the
+            polynomial operator.
+        gaussian_sigma: Standard deviation of the Gaussian mutation as a
+            fraction of the variable range (``x_i += N(0, 1) * sigma *
+            (xu_i - xl_i)``). Acts as the exploration strength of the
+            Gaussian operator. Only used when
+            ``mutation_operator == "gaussian"``.
     """
 
     crossover_operator: str = "sbx"
@@ -139,6 +145,7 @@ class OperatorConfig:
     mutation_prob: float | None = None  # None -> default 1.0 / n_vars
     eta_c: float = 20.0
     eta_m: float = 20.0
+    gaussian_sigma: float = 0.1
 
 
 class NSGAII:
@@ -146,8 +153,8 @@ class NSGAII:
 
     The implementation follows the reference algorithm: fast non-dominated
     sort, crowding distance assignment, crowded binary tournament selection,
-    SBX crossover with per-variable swap probability 0.5, polynomial
-    mutation, and (mu + lambda) environmental selection by rank then
+    SBX crossover with per-variable swap probability 0.5, polynomial or
+    Gaussian mutation, and (mu + lambda) environmental selection by rank then
     crowding distance.
 
     All randomness flows through one ``numpy.random.Generator(PCG64(seed))``
@@ -184,10 +191,13 @@ class NSGAII:
             raise ValueError(
                 f"unsupported crossover_operator {operators.crossover_operator!r}; only 'sbx' is implemented"
             )
-        if operators.mutation_operator != "polynomial":
+        if operators.mutation_operator not in ("polynomial", "gaussian"):
             raise ValueError(
-                f"unsupported mutation_operator {operators.mutation_operator!r}; only 'polynomial' is implemented"
+                f"unsupported mutation_operator {operators.mutation_operator!r}; "
+                "expected 'polynomial' or 'gaussian'"
             )
+        if not operators.gaussian_sigma > 0.0:
+            raise ValueError(f"gaussian_sigma must be positive, got {operators.gaussian_sigma}")
         if not 0.0 <= operators.crossover_prob <= 1.0:
             raise ValueError(f"crossover_prob must lie in [0, 1], got {operators.crossover_prob}")
         if operators.mutation_prob is not None and not 0.0 <= operators.mutation_prob <= 1.0:
@@ -202,9 +212,12 @@ class NSGAII:
             if operators.mutation_prob is not None
             else 1.0 / problem.n_vars
         )
-        # Probability actually used by the most recent step(); None until the
-        # first step (or after re-initialization) means the resolved default.
+        # Action values actually used by the most recent step(); None until
+        # the first step (or after re-initialization) means the resolved
+        # config defaults.
         self._last_mutation_prob: float | None = None
+        self._last_mutation_operator: str | None = None
+        self._last_exploration_strength: float | None = None
         self._lb = np.asarray(problem.lower_bounds, dtype=np.float64)
         self._ub = np.asarray(problem.upper_bounds, dtype=np.float64)
         if self._lb.shape != (problem.n_vars,) or self._ub.shape != (problem.n_vars,):
@@ -265,36 +278,71 @@ class NSGAII:
         self._population_f = self._evaluate(self._population_x)
         self._generation = 0
         self._last_mutation_prob = None
+        self._last_mutation_operator = None
+        self._last_exploration_strength = None
         self._update_rank_crowding()
 
-    def step(self, mutation_prob: float | None = None) -> None:
+    def step(
+        self,
+        mutation_prob: float | None = None,
+        mutation_operator: str | None = None,
+        exploration_strength: float | None = None,
+    ) -> None:
         """Advance the population by exactly one NSGA-II generation.
 
         Offspring of size mu are created by crowded binary tournament
-        selection, SBX crossover, and polynomial mutation; the (mu + lambda)
-        combined parent+offspring population is then reduced back to mu by
-        non-dominated rank and crowding distance (elitist replacement).
+        selection, SBX crossover, and mutation with the effective operator;
+        the (mu + lambda) combined parent+offspring population is then
+        reduced back to mu by non-dominated rank and crowding distance
+        (elitist replacement).
 
         Args:
             mutation_prob: Optional per-variable mutation probability used
                 for THIS generation only (Phase-1 controller action
                 injection). ``None`` keeps the configured default
                 (``operators.mutation_prob``, resolved to ``1.0 / n_vars``
-                when unset). The value actually applied is stored in
-                ``self._last_mutation_prob`` and exposed via
-                ``current_action()``.
+                when unset).
+            mutation_operator: Optional mutation operator for THIS
+                generation only; ``"polynomial"`` or ``"gaussian"``.
+                ``None`` keeps ``operators.mutation_operator``.
+            exploration_strength: Optional exploration strength for THIS
+                generation only, interpreted as the polynomial distribution
+                index ``eta_m`` when the effective operator is polynomial
+                and as ``sigma`` when it is Gaussian. ``None`` keeps the
+                configured default of the effective operator (``eta_m`` or
+                ``gaussian_sigma``). Must be positive.
+
+        The values actually applied are stored on the instance and exposed
+        via ``current_action()``.
 
         Raises:
             RuntimeError: If called before initialize().
-            ValueError: If ``mutation_prob`` lies outside [0, 1].
+            ValueError: If ``mutation_prob`` lies outside [0, 1],
+                ``mutation_operator`` is unsupported, or
+                ``exploration_strength`` is not positive.
         """
         if self._population_x is None or self._population_f is None:
             raise RuntimeError("population does not exist yet; call initialize() first")
         if mutation_prob is not None and not 0.0 <= mutation_prob <= 1.0:
             raise ValueError(f"mutation_prob must lie in [0, 1], got {mutation_prob}")
+        if mutation_operator is not None and mutation_operator not in ("polynomial", "gaussian"):
+            raise ValueError(
+                f"unsupported mutation_operator {mutation_operator!r}; "
+                "expected 'polynomial' or 'gaussian'"
+            )
+        if exploration_strength is not None and not exploration_strength > 0.0:
+            raise ValueError(f"exploration_strength must be positive, got {exploration_strength}")
         pm = float(mutation_prob) if mutation_prob is not None else self._mutation_prob
+        operator = (
+            mutation_operator if mutation_operator is not None else self._operators.mutation_operator
+        )
+        strength = (
+            float(exploration_strength)
+            if exploration_strength is not None
+            else self._default_exploration_strength(operator)
+        )
         mating_indices = self._tournament_selection()
-        offspring_x = self._make_offspring(mating_indices, pm)
+        offspring_x = self._make_offspring(mating_indices, pm, operator, strength)
         offspring_f = self._evaluate(offspring_x)
         combined_x = np.vstack([self._population_x, offspring_x])
         combined_f = np.vstack([self._population_f, offspring_f])
@@ -303,6 +351,8 @@ class NSGAII:
         self._population_f = combined_f[selected]
         self._generation += 1
         self._last_mutation_prob = pm
+        self._last_mutation_operator = operator
+        self._last_exploration_strength = strength
         self._update_rank_crowding()
 
     def nondominated_front(self) -> np.ndarray:
@@ -325,19 +375,38 @@ class NSGAII:
         """Variation action actually applied by the most recent step.
 
         Returns:
-            Dict with keys ``"mutation_operator"`` (str) and
-            ``"mutation_probability"`` (float). The probability is the value
-            actually used by the last ``step()`` call — either the injected
-            override or, if no step has been taken yet / no override was
-            given, the resolved default (``1.0 / n_vars`` when the config
-            left it as ``None``). Matches the action schema of the Phase-0
-            trajectory recorder.
+            Dict with keys ``"mutation_operator"`` (str),
+            ``"mutation_probability"`` (float), and
+            ``"exploration_strength"`` (float). All values are the ones
+            actually used by the last ``step()`` call — injected overrides
+            or, for arguments left as ``None`` (and before any step), the
+            resolved config defaults. ``exploration_strength`` is the
+            ``eta_m`` (polynomial) or ``sigma`` (Gaussian) in effect for
+            the effective operator. Matches the Phase-1.5 action schema of
+            the trajectory recorder.
         """
+        operator = (
+            self._last_mutation_operator
+            if self._last_mutation_operator is not None
+            else self._operators.mutation_operator
+        )
         pm = self._last_mutation_prob if self._last_mutation_prob is not None else self._mutation_prob
+        strength = (
+            self._last_exploration_strength
+            if self._last_exploration_strength is not None
+            else self._default_exploration_strength(operator)
+        )
         return {
-            "mutation_operator": self._operators.mutation_operator,
+            "mutation_operator": operator,
             "mutation_probability": float(pm),
+            "exploration_strength": float(strength),
         }
+
+    def _default_exploration_strength(self, mutation_operator: str) -> float:
+        """Config-level exploration strength of an operator (eta_m or sigma)."""
+        if mutation_operator == "gaussian":
+            return float(self._operators.gaussian_sigma)
+        return float(self._operators.eta_m)
 
     def _evaluate(self, x: np.ndarray) -> np.ndarray:
         """Evaluate a population row-wise via ``problem.evaluate``."""
@@ -381,7 +450,11 @@ class NSGAII:
         return i if self._rng.random() < 0.5 else j
 
     def _make_offspring(
-        self, mating_indices: np.ndarray, mutation_prob: float
+        self,
+        mating_indices: np.ndarray,
+        mutation_prob: float,
+        mutation_operator: str,
+        exploration_strength: float,
     ) -> np.ndarray:
         """Generate mu offspring from consecutive parent pairs in the mating pool.
 
@@ -389,6 +462,11 @@ class NSGAII:
             mating_indices: Mating pool of mu parent indices.
             mutation_prob: Per-variable mutation probability applied to every
                 offspring in this generation.
+            mutation_operator: Effective mutation operator of this
+                generation (``"polynomial"`` or ``"gaussian"``).
+            exploration_strength: Effective exploration strength of this
+                generation (``eta_m`` for polynomial, ``sigma`` for
+                Gaussian).
         """
         assert self._population_x is not None
         parents = self._population_x[mating_indices]
@@ -399,9 +477,23 @@ class NSGAII:
                 c1, c2 = self._sbx(p1, p2)
             else:
                 c1, c2 = p1.copy(), p2.copy()
-            offspring[pair] = self._polynomial_mutation(c1, mutation_prob)
-            offspring[pair + 1] = self._polynomial_mutation(c2, mutation_prob)
+            offspring[pair] = self._mutate(c1, mutation_prob, mutation_operator, exploration_strength)
+            offspring[pair + 1] = self._mutate(
+                c2, mutation_prob, mutation_operator, exploration_strength
+            )
         return offspring
+
+    def _mutate(
+        self,
+        x: np.ndarray,
+        mutation_prob: float,
+        mutation_operator: str,
+        exploration_strength: float,
+    ) -> np.ndarray:
+        """Apply the effective mutation operator of this generation to one offspring."""
+        if mutation_operator == "gaussian":
+            return self._gaussian_mutation(x, mutation_prob, exploration_strength)
+        return self._polynomial_mutation(x, mutation_prob, exploration_strength)
 
     def _sbx(self, p1: np.ndarray, p2: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Simulated binary crossover (Deb & Agrawal 1995; Deb et al. 2002).
@@ -455,16 +547,18 @@ class NSGAII:
             return 0.5 * ((y1 + y2) - betaq * (y2 - y1))
         return 0.5 * ((y1 + y2) + betaq * (y2 - y1))
 
-    def _polynomial_mutation(self, x: np.ndarray, mutation_prob: float) -> np.ndarray:
+    def _polynomial_mutation(
+        self, x: np.ndarray, mutation_prob: float, eta_m: float
+    ) -> np.ndarray:
         """Polynomial mutation (Deb & Goyal 1996; Deb et al. 2002).
 
         Each variable is perturbed with probability ``mutation_prob``
         (default ``1/n_vars``) by delta_q * (hi - lo), where delta_q follows
-        the polynomial distribution with index eta_m. Mutated values are
-        clipped to the bounds.
+        the polynomial distribution with index ``eta_m`` (the exploration
+        strength of this operator). Mutated values are clipped to the
+        bounds.
         """
         y = x.copy()
-        eta_m = self._operators.eta_m
         mut_pow = 1.0 / (eta_m + 1.0)
         for k in range(self._problem.n_vars):
             if self._rng.random() > mutation_prob:
@@ -485,6 +579,29 @@ class NSGAII:
                 val = 2.0 * (1.0 - rnd) + 2.0 * (rnd - 0.5) * xy ** (eta_m + 1.0)
                 deltaq = 1.0 - val ** mut_pow
             y[k] = min(max(yk + deltaq * (hi - lo), lo), hi)
+        return y
+
+    def _gaussian_mutation(
+        self, x: np.ndarray, mutation_prob: float, sigma: float
+    ) -> np.ndarray:
+        """Gaussian mutation with range-scaled perturbations.
+
+        Each variable is perturbed with probability ``mutation_prob``
+        (default ``1/n_vars``) by ``N(0, 1) * sigma * (hi - lo)`` and
+        clipped to the bounds. ``sigma`` is the exploration strength of
+        this operator: larger values produce larger perturbations. All
+        draws go through the instance generator, in the same mask-then-
+        perturbation order as polynomial mutation.
+        """
+        y = x.copy()
+        for k in range(self._problem.n_vars):
+            if self._rng.random() > mutation_prob:
+                continue
+            lo, hi = float(self._lb[k]), float(self._ub[k])
+            if hi - lo <= 0.0:
+                continue  # fixed variable
+            perturbation = float(self._rng.normal()) * sigma * (hi - lo)
+            y[k] = min(max(float(y[k]) + perturbation, lo), hi)
         return y
 
     def _environmental_selection(self, combined_f: np.ndarray) -> np.ndarray:

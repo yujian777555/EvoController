@@ -112,6 +112,17 @@ class EvolutionRecorder:
                 "delta_igd": self._prev_igd - igd_value,
             }
 
+        stored_action = {
+            "mutation_operator": str(action["mutation_operator"]),
+            "mutation_probability": float(action["mutation_probability"]),
+        }
+        for key, value in action.items():
+            if key in stored_action:
+                continue
+            stored_action[key] = (
+                float(value) if isinstance(value, (int, float, np.floating)) else value
+            )
+
         transition = {
             "generation": int(generation),
             "state": {
@@ -120,10 +131,7 @@ class EvolutionRecorder:
                 "igd": igd_value,
                 "diversity": diversity,
             },
-            "action": {
-                "mutation_operator": str(action["mutation_operator"]),
-                "mutation_probability": float(action["mutation_probability"]),
-            },
+            "action": stored_action,
             "reward": {
                 "delta_hv": float(reward["delta_hv"]),
                 "delta_igd": float(reward["delta_igd"]),

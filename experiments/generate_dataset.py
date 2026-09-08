@@ -16,6 +16,20 @@ Policies:
   ``NSGAII.step(mutation_prob=pm_t)``. Sampling uses a dedicated generator
   seeded by ``(seed, crc32(problem_name))`` so runs are reproducible.
 
+Action spaces (``--action-space``):
+
+* ``pm`` (default): only the mutation probability is controlled (Phase-1
+  behavior).
+* ``full``: Phase-1.5 expanded action space — each generation additionally
+  samples the mutation operator uniformly from {polynomial, gaussian} and
+  an exploration strength (eta_m for polynomial from
+  ``exp(U(log 2, log 50))``, sigma for Gaussian from
+  ``exp(U(log 0.02, log 0.3))``), injected via
+  ``NSGAII.step(mutation_prob=..., mutation_operator=...,
+  exploration_strength=...)``. Selecting ``full`` implies per-generation
+  randomized actions and widens the default ``--pm-mult-range`` to
+  ``0.25 8.0``.
+
 The stored ``config`` dict fully determines the run (problem, algorithm,
 population size, generation count, resolved operator settings, policy
 settings, reference point, reference-front size, and a UTC timestamp),
@@ -52,6 +66,14 @@ from trajectory.recorder import EvolutionRecorder
 DEFAULT_PROBLEMS: tuple[str, ...] = ("zdt1", "zdt2", "zdt3", "zdt4", "zdt6")
 #: Default seed grid; AGENTS.md requires at least 5 random seeds per experiment.
 DEFAULT_SEEDS: tuple[int, ...] = (0, 1, 2, 3, 4)
+#: Default log-uniform pm multiplier range of the pm action space.
+DEFAULT_PM_MULT_RANGE: tuple[float, float] = (0.5, 5.0)
+#: Widened default pm multiplier range of the full action space (Phase 1.5).
+FULL_ACTION_PM_MULT_RANGE: tuple[float, float] = (0.25, 8.0)
+#: Log-uniform sampling range of the polynomial eta_m exploration strength.
+ETA_M_SAMPLE_RANGE: tuple[float, float] = (2.0, 50.0)
+#: Log-uniform sampling range of the Gaussian sigma exploration strength.
+SIGMA_SAMPLE_RANGE: tuple[float, float] = (0.02, 0.3)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -62,7 +84,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     Returns:
         Parsed namespace with problems, seeds, generations, pop_size,
-        out_dir, n_reference_points, ref_point, policy, and pm_mult_range.
+        out_dir, n_reference_points, ref_point, policy, action_space, and
+        pm_mult_range.
     """
     parser = argparse.ArgumentParser(
         description=(
@@ -126,14 +149,28 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--action-space",
+        choices=("pm", "full"),
+        default="pm",
+        help=(
+            "Controller action space: 'pm' varies only the mutation "
+            "probability (Phase-1 behavior); 'full' additionally samples "
+            "the mutation operator and the exploration strength each "
+            "generation (Phase-1.5). 'full' implies randomized actions "
+            "(default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
         "--pm-mult-range",
         nargs=2,
         type=float,
-        default=[0.5, 5.0],
+        default=None,
         metavar=("LO", "HI"),
         help=(
-            "Log-uniform multiplier range for the random policy: "
-            "pm_t = (1/n_vars) * exp(U(log LO, log HI)) (default: %(default)s)."
+            "Log-uniform multiplier range for the randomized policies: "
+            "pm_t = (1/n_vars) * exp(U(log LO, log HI)). Defaults to "
+            "0.5 5.0 for --action-space pm and to 0.25 8.0 for "
+            "--action-space full."
         ),
     )
     return parser.parse_args(argv)
@@ -151,13 +188,14 @@ def build_config(
     policy: str,
     pm_mult_range: tuple[float, float],
     base_mutation_prob: float,
+    action_space: str,
 ) -> dict[str, Any]:
     """Build the configuration dict stored inside each trajectory JSON.
 
     The config fully determines the run: every operator setting is resolved
-    (including the effective mutation probability), the action policy and
-    its sampling range are recorded, and a UTC timestamp is attached for
-    provenance.
+    (including the effective mutation probability and the Gaussian sigma
+    default), the action policy, action space, and sampling ranges are
+    recorded, and a UTC timestamp is attached for provenance.
 
     Args:
         problem_name: Benchmark identifier (e.g. ``"zdt1"``).
@@ -171,9 +209,10 @@ def build_config(
         n_reference_points: Size of the IGD reference front sample.
         policy: Action policy identifier (``"fixed"`` or ``"random"``).
         pm_mult_range: Log-uniform multiplier range ``(lo, hi)`` used by the
-            random policy; recorded for both policies.
+            randomized policies; recorded for all policies.
         base_mutation_prob: Base per-variable mutation probability
-            ``1 / n_vars`` around which the random policy samples.
+            ``1 / n_vars`` around which randomized policies sample.
+        action_space: Controller action space (``"pm"`` or ``"full"``).
 
     Returns:
         JSON-serializable configuration dict.
@@ -191,10 +230,16 @@ def build_config(
             "mutation_probability": float(mutation_probability),
             "eta_c": float(operators.eta_c),
             "eta_m": float(operators.eta_m),
+            "gaussian_sigma": float(operators.gaussian_sigma),
         },
         "policy": str(policy),
+        "action_space": str(action_space),
         "pm_mult_range": [float(pm_mult_range[0]), float(pm_mult_range[1])],
         "base_mutation_prob": float(base_mutation_prob),
+        "exploration_ranges": {
+            "polynomial_eta_m": [float(ETA_M_SAMPLE_RANGE[0]), float(ETA_M_SAMPLE_RANGE[1])],
+            "gaussian_sigma": [float(SIGMA_SAMPLE_RANGE[0]), float(SIGMA_SAMPLE_RANGE[1])],
+        },
         "ref_point": [float(ref_point[0]), float(ref_point[1])],
         "n_reference_points": int(n_reference_points),
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -240,6 +285,35 @@ def sample_random_mutation_prob(
     return base_mutation_prob * float(np.exp(rng.uniform(np.log(lo), np.log(hi))))
 
 
+def sample_full_action(
+    rng: np.random.Generator, base_mutation_prob: float, pm_mult_range: tuple[float, float]
+) -> tuple[str, float, float]:
+    """Sample one generation's action of the full (Phase-1.5) action space.
+
+    The mutation operator is drawn uniformly from {polynomial, gaussian},
+    the mutation probability is log-uniform in the multiplier around
+    ``base_mutation_prob`` (see :func:`sample_random_mutation_prob`), and
+    the exploration strength is log-uniform in
+    ``ETA_M_SAMPLE_RANGE = (2, 50)`` for polynomial (eta_m) or
+    ``SIGMA_SAMPLE_RANGE = (0.02, 0.3)`` for Gaussian (sigma). Draws happen
+    in the fixed order operator -> pm -> exploration strength so sequences
+    are reproducible given the generator seed.
+
+    Args:
+        rng: The dedicated policy generator (see :func:`make_policy_rng`).
+        base_mutation_prob: Base per-variable probability ``1 / n_vars``.
+        pm_mult_range: Multiplier range ``(lo, hi)`` with ``0 < lo <= hi``.
+
+    Returns:
+        ``(mutation_operator, mutation_prob, exploration_strength)``.
+    """
+    mutation_operator = "polynomial" if int(rng.integers(0, 2)) == 0 else "gaussian"
+    pm = sample_random_mutation_prob(rng, base_mutation_prob, pm_mult_range)
+    lo, hi = ETA_M_SAMPLE_RANGE if mutation_operator == "polynomial" else SIGMA_SAMPLE_RANGE
+    exploration_strength = float(np.exp(rng.uniform(np.log(lo), np.log(hi))))
+    return mutation_operator, pm, exploration_strength
+
+
 def run_single(
     problem_name: str,
     seed: int,
@@ -249,17 +323,21 @@ def run_single(
     ref_point: np.ndarray,
     out_dir: Path,
     policy: str = "fixed",
-    pm_mult_range: tuple[float, float] = (0.5, 5.0),
+    pm_mult_range: tuple[float, float] | None = None,
+    action_space: str = "pm",
 ) -> dict[str, Any]:
     """Run one NSGA-II trajectory and save it to JSON.
 
     Initializes the population, records generation 0, then performs
     ``generations`` steps, recording after each step. Under the ``"random"``
     policy each step's mutation probability is sampled from a dedicated
-    generator and injected via ``step(mutation_prob=pm_t)``; the recorded
-    action is the value actually used (``algorithm.current_action()`` after
-    the step). Wall-clock runtime covers the full run (initialization +
-    evolution loop).
+    generator and injected via ``step(mutation_prob=pm_t)``; under the
+    ``"full"`` action space the operator and exploration strength are
+    sampled as well (see :func:`sample_full_action`) and injected via
+    ``step(mutation_prob=..., mutation_operator=...,
+    exploration_strength=...)``. The recorded action is the value actually
+    used (``algorithm.current_action()`` after the step). Wall-clock
+    runtime covers the full run (initialization + evolution loop).
 
     Args:
         problem_name: Benchmark identifier accepted by ``get_problem``.
@@ -271,19 +349,33 @@ def run_single(
         out_dir: Output directory; the file is written to
             ``{out_dir}/{problem_name}_nsga2_seed{seed}.json``.
         policy: ``"fixed"`` (constant default mutation probability) or
-            ``"random"`` (log-uniform per-generation sampling).
-        pm_mult_range: Multiplier range ``(lo, hi)`` for the random policy;
-            must satisfy ``0 < lo <= hi``.
+            ``"random"`` (log-uniform per-generation sampling). The
+            ``"full"`` action space implies randomized actions regardless
+            of this setting.
+        pm_mult_range: Multiplier range ``(lo, hi)`` for the randomized
+            policies; must satisfy ``0 < lo <= hi``. ``None`` resolves to
+            ``DEFAULT_PM_MULT_RANGE`` for ``action_space == "pm"`` and to
+            ``FULL_ACTION_PM_MULT_RANGE`` for ``action_space == "full"``.
+        action_space: ``"pm"`` (only the mutation probability is
+            controlled, Phase-1 behavior) or ``"full"`` (operator +
+            mutation probability + exploration strength, Phase-1.5).
 
     Returns:
         Summary dict with keys ``file``, ``problem``, ``seed``,
         ``final_hv``, ``final_igd``, ``runtime_sec``.
 
     Raises:
-        ValueError: If ``policy`` is unknown or ``pm_mult_range`` is invalid.
+        ValueError: If ``policy`` or ``action_space`` is unknown or
+            ``pm_mult_range`` is invalid.
     """
     if policy not in ("fixed", "random"):
         raise ValueError(f"unsupported policy {policy!r}; expected 'fixed' or 'random'")
+    if action_space not in ("pm", "full"):
+        raise ValueError(f"unsupported action_space {action_space!r}; expected 'pm' or 'full'")
+    if pm_mult_range is None:
+        pm_mult_range = (
+            DEFAULT_PM_MULT_RANGE if action_space == "pm" else FULL_ACTION_PM_MULT_RANGE
+        )
     lo, hi = float(pm_mult_range[0]), float(pm_mult_range[1])
     if not lo > 0.0 or hi < lo:
         raise ValueError(f"pm_mult_range must satisfy 0 < lo <= hi, got {(lo, hi)}")
@@ -297,13 +389,20 @@ def run_single(
         ref_point=ref_point,
     )
     base_pm = 1.0 / problem.n_vars
-    policy_rng = make_policy_rng(problem.name, seed) if policy == "random" else None
+    sample_actions = policy == "random" or action_space == "full"
+    policy_rng = make_policy_rng(problem.name, seed) if sample_actions else None
 
     start = time.perf_counter()
     algorithm.initialize()
     recorder.record(algorithm.generation, algorithm.nondominated_front(), algorithm.current_action())
     for _ in range(generations):
-        if policy_rng is not None:
+        if action_space == "full":
+            assert policy_rng is not None
+            op_t, pm_t, es_t = sample_full_action(policy_rng, base_pm, (lo, hi))
+            algorithm.step(
+                mutation_prob=pm_t, mutation_operator=op_t, exploration_strength=es_t
+            )
+        elif policy_rng is not None:
             pm_t = sample_random_mutation_prob(policy_rng, base_pm, (lo, hi))
             algorithm.step(mutation_prob=pm_t)
         else:
@@ -323,6 +422,7 @@ def run_single(
         policy=policy,
         pm_mult_range=(lo, hi),
         base_mutation_prob=base_pm,
+        action_space=action_space,
     )
 
     out_path = out_dir / f"{problem.name}_nsga2_seed{seed}.json"
@@ -362,7 +462,14 @@ def main(argv: Sequence[str] | None = None) -> list[dict[str, Any]]:
     print(
         f"Phase-0/1 dataset generation: {len(args.problems)} problems x "
         f"{len(args.seeds)} seeds x {args.generations} generations x "
-        f"pop {args.pop_size}; policy={args.policy} out_dir={out_dir}"
+        f"pop {args.pop_size}; policy={args.policy} "
+        f"action_space={args.action_space} out_dir={out_dir}"
+    )
+
+    pm_mult_range = (
+        (float(args.pm_mult_range[0]), float(args.pm_mult_range[1]))
+        if args.pm_mult_range is not None
+        else None
     )
 
     summaries: list[dict[str, Any]] = []
@@ -378,7 +485,8 @@ def main(argv: Sequence[str] | None = None) -> list[dict[str, Any]]:
                     ref_point=ref_point,
                     out_dir=out_dir,
                     policy=args.policy,
-                    pm_mult_range=(float(args.pm_mult_range[0]), float(args.pm_mult_range[1])),
+                    pm_mult_range=pm_mult_range,
+                    action_space=args.action_space,
                 )
             )
 

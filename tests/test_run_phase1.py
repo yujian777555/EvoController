@@ -278,7 +278,8 @@ def test_trajectory_files_per_arm(experiment: dict[str, Any]) -> None:
         assert len(transitions) == _GENERATIONS + 1
         assert [t["generation"] for t in transitions] == list(range(_GENERATIONS + 1))
         for t in transitions:
-            assert set(t["action"]) == {"mutation_operator", "mutation_probability"}
+            # Phase 1.5: NSGA-II current_action() reports exploration_strength too
+            assert {"mutation_operator", "mutation_probability"} <= set(t["action"])
             assert t["action"]["mutation_operator"] == "polynomial"
         config = trajectory["config"]
         assert config["arm"] == arm
