@@ -157,3 +157,64 @@ def test_current_action_explicit_mutation_prob() -> None:
     action = algo.current_action()
     assert action["mutation_operator"] == "polynomial"
     assert action["mutation_probability"] == pytest.approx(0.3)
+
+
+def test_step_override_used_exactly() -> None:
+    """An injected mutation_prob is reported verbatim after the step."""
+    algo = _make_algo()
+    algo.initialize()
+    # Before any step, current_action() returns the resolved default.
+    assert algo.current_action()["mutation_probability"] == pytest.approx(1.0 / N_VARS)
+    algo.step(mutation_prob=0.5)
+    action = algo.current_action()
+    assert action["mutation_operator"] == "polynomial"
+    assert action["mutation_probability"] == pytest.approx(0.5)
+
+
+def test_step_without_override_reverts_to_default() -> None:
+    """The override applies to one generation only; the next step reverts."""
+    algo = _make_algo()
+    algo.initialize()
+    algo.step(mutation_prob=0.5)
+    algo.step()
+    assert algo.current_action()["mutation_probability"] == pytest.approx(1.0 / N_VARS)
+
+
+@pytest.mark.parametrize("bad", [-0.1, 1.5, float("nan")])
+def test_step_override_invalid_raises_value_error(bad: float) -> None:
+    """Override probabilities outside [0, 1] are rejected before evolving."""
+    algo = _make_algo()
+    algo.initialize()
+    with pytest.raises(ValueError):
+        algo.step(mutation_prob=bad)
+    # The rejected step must not have advanced the run.
+    assert algo.generation == 0
+    assert algo.current_action()["mutation_probability"] == pytest.approx(1.0 / N_VARS)
+
+
+def test_determinism_same_seed_same_override_sequence() -> None:
+    """Same seed + same override sequence -> bit-identical populations."""
+    overrides = [0.1, 0.3, 0.05, 0.2]
+    fronts, populations = [], []
+    for _ in range(2):
+        algo = _make_algo(seed=11)
+        algo.initialize()
+        for pm in overrides:
+            algo.step(mutation_prob=pm)
+        fronts.append(algo.nondominated_front())
+        populations.append(algo.population_x)
+    np.testing.assert_array_equal(fronts[0], fronts[1])
+    np.testing.assert_array_equal(populations[0], populations[1])
+
+
+def test_no_override_matches_default_step() -> None:
+    """step(mutation_prob=None) is identical to the pre-change step() path."""
+    algo_a = _make_algo(seed=13)
+    algo_b = _make_algo(seed=13)
+    algo_a.initialize()
+    algo_b.initialize()
+    for _ in range(5):
+        algo_a.step()
+        algo_b.step(mutation_prob=None)
+    np.testing.assert_array_equal(algo_a.nondominated_front(), algo_b.nondominated_front())
+    np.testing.assert_array_equal(algo_a.population_x, algo_b.population_x)

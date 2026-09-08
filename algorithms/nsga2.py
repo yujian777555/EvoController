@@ -202,6 +202,9 @@ class NSGAII:
             if operators.mutation_prob is not None
             else 1.0 / problem.n_vars
         )
+        # Probability actually used by the most recent step(); None until the
+        # first step (or after re-initialization) means the resolved default.
+        self._last_mutation_prob: float | None = None
         self._lb = np.asarray(problem.lower_bounds, dtype=np.float64)
         self._ub = np.asarray(problem.upper_bounds, dtype=np.float64)
         if self._lb.shape != (problem.n_vars,) or self._ub.shape != (problem.n_vars,):
@@ -261,9 +264,10 @@ class NSGAII:
         )
         self._population_f = self._evaluate(self._population_x)
         self._generation = 0
+        self._last_mutation_prob = None
         self._update_rank_crowding()
 
-    def step(self) -> None:
+    def step(self, mutation_prob: float | None = None) -> None:
         """Advance the population by exactly one NSGA-II generation.
 
         Offspring of size mu are created by crowded binary tournament
@@ -271,13 +275,26 @@ class NSGAII:
         combined parent+offspring population is then reduced back to mu by
         non-dominated rank and crowding distance (elitist replacement).
 
+        Args:
+            mutation_prob: Optional per-variable mutation probability used
+                for THIS generation only (Phase-1 controller action
+                injection). ``None`` keeps the configured default
+                (``operators.mutation_prob``, resolved to ``1.0 / n_vars``
+                when unset). The value actually applied is stored in
+                ``self._last_mutation_prob`` and exposed via
+                ``current_action()``.
+
         Raises:
             RuntimeError: If called before initialize().
+            ValueError: If ``mutation_prob`` lies outside [0, 1].
         """
         if self._population_x is None or self._population_f is None:
             raise RuntimeError("population does not exist yet; call initialize() first")
+        if mutation_prob is not None and not 0.0 <= mutation_prob <= 1.0:
+            raise ValueError(f"mutation_prob must lie in [0, 1], got {mutation_prob}")
+        pm = float(mutation_prob) if mutation_prob is not None else self._mutation_prob
         mating_indices = self._tournament_selection()
-        offspring_x = self._make_offspring(mating_indices)
+        offspring_x = self._make_offspring(mating_indices, pm)
         offspring_f = self._evaluate(offspring_x)
         combined_x = np.vstack([self._population_x, offspring_x])
         combined_f = np.vstack([self._population_f, offspring_f])
@@ -285,6 +302,7 @@ class NSGAII:
         self._population_x = combined_x[selected]
         self._population_f = combined_f[selected]
         self._generation += 1
+        self._last_mutation_prob = pm
         self._update_rank_crowding()
 
     def nondominated_front(self) -> np.ndarray:
@@ -304,18 +322,21 @@ class NSGAII:
         return front[order].copy()
 
     def current_action(self) -> dict:
-        """Resolved variation action currently applied by the algorithm.
+        """Variation action actually applied by the most recent step.
 
         Returns:
             Dict with keys ``"mutation_operator"`` (str) and
-            ``"mutation_probability"`` (float), the latter resolved to its
-            effective per-variable value (``1.0 / n_vars`` when the config
+            ``"mutation_probability"`` (float). The probability is the value
+            actually used by the last ``step()`` call — either the injected
+            override or, if no step has been taken yet / no override was
+            given, the resolved default (``1.0 / n_vars`` when the config
             left it as ``None``). Matches the action schema of the Phase-0
             trajectory recorder.
         """
+        pm = self._last_mutation_prob if self._last_mutation_prob is not None else self._mutation_prob
         return {
             "mutation_operator": self._operators.mutation_operator,
-            "mutation_probability": float(self._mutation_prob),
+            "mutation_probability": float(pm),
         }
 
     def _evaluate(self, x: np.ndarray) -> np.ndarray:
@@ -359,8 +380,16 @@ class NSGAII:
             return i if self._crowding[i] > self._crowding[j] else j
         return i if self._rng.random() < 0.5 else j
 
-    def _make_offspring(self, mating_indices: np.ndarray) -> np.ndarray:
-        """Generate mu offspring from consecutive parent pairs in the mating pool."""
+    def _make_offspring(
+        self, mating_indices: np.ndarray, mutation_prob: float
+    ) -> np.ndarray:
+        """Generate mu offspring from consecutive parent pairs in the mating pool.
+
+        Args:
+            mating_indices: Mating pool of mu parent indices.
+            mutation_prob: Per-variable mutation probability applied to every
+                offspring in this generation.
+        """
         assert self._population_x is not None
         parents = self._population_x[mating_indices]
         offspring = np.empty_like(parents)
@@ -370,8 +399,8 @@ class NSGAII:
                 c1, c2 = self._sbx(p1, p2)
             else:
                 c1, c2 = p1.copy(), p2.copy()
-            offspring[pair] = self._polynomial_mutation(c1)
-            offspring[pair + 1] = self._polynomial_mutation(c2)
+            offspring[pair] = self._polynomial_mutation(c1, mutation_prob)
+            offspring[pair + 1] = self._polynomial_mutation(c2, mutation_prob)
         return offspring
 
     def _sbx(self, p1: np.ndarray, p2: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -426,7 +455,7 @@ class NSGAII:
             return 0.5 * ((y1 + y2) - betaq * (y2 - y1))
         return 0.5 * ((y1 + y2) + betaq * (y2 - y1))
 
-    def _polynomial_mutation(self, x: np.ndarray) -> np.ndarray:
+    def _polynomial_mutation(self, x: np.ndarray, mutation_prob: float) -> np.ndarray:
         """Polynomial mutation (Deb & Goyal 1996; Deb et al. 2002).
 
         Each variable is perturbed with probability ``mutation_prob``
@@ -438,7 +467,7 @@ class NSGAII:
         eta_m = self._operators.eta_m
         mut_pow = 1.0 / (eta_m + 1.0)
         for k in range(self._problem.n_vars):
-            if self._rng.random() > self._mutation_prob:
+            if self._rng.random() > mutation_prob:
                 continue
             lo, hi = float(self._lb[k]), float(self._ub[k])
             if hi - lo <= 0.0:

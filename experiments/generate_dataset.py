@@ -1,14 +1,25 @@
-"""Phase 0: generate (state, action, reward) trajectory datasets with NSGA-II.
+"""Phase 0/1: generate (state, action, reward) trajectory datasets with NSGA-II.
 
-For each (problem, seed) pair this script runs a fixed-policy NSGA-II
-baseline (``OperatorConfig`` defaults), records every generation with
+For each (problem, seed) pair this script runs NSGA-II with a chosen action
+policy, records every generation with
 :class:`trajectory.recorder.EvolutionRecorder`, and writes one JSON
 trajectory file per run plus an ``index.json`` summarizing the invocation.
 
+Policies:
+
+* ``fixed`` (default): the Phase-0 baseline — mutation probability stays at
+  the resolved ``OperatorConfig`` default (``1 / n_vars``) for all
+  generations.
+* ``random``: Phase-1 action randomization — each generation the mutation
+  probability is sampled as ``(1 / n_vars) * exp(U(log lo, log hi))`` with
+  ``(lo, hi) = --pm-mult-range`` and injected via
+  ``NSGAII.step(mutation_prob=pm_t)``. Sampling uses a dedicated generator
+  seeded by ``(seed, crc32(problem_name))`` so runs are reproducible.
+
 The stored ``config`` dict fully determines the run (problem, algorithm,
-population size, generation count, resolved operator settings, reference
-point, reference-front size, and a UTC timestamp), satisfying the
-EvoController experiment-recording rule (AGENTS.md Rule 2).
+population size, generation count, resolved operator settings, policy
+settings, reference point, reference-front size, and a UTC timestamp),
+satisfying the EvoController experiment-recording rule (AGENTS.md Rule 2).
 
 Example:
     ``python experiments/generate_dataset.py`` runs the full default grid:
@@ -21,6 +32,7 @@ import argparse
 import json
 import sys
 import time
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
@@ -50,12 +62,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     Returns:
         Parsed namespace with problems, seeds, generations, pop_size,
-        out_dir, n_reference_points, and ref_point.
+        out_dir, n_reference_points, ref_point, policy, and pm_mult_range.
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Generate NSGA-II baseline trajectories (state, action, reward) "
-            "on ZDT benchmarks for the EvoController Phase-0 dataset."
+            "Generate NSGA-II trajectories (state, action, reward) "
+            "on ZDT benchmarks for the EvoController dataset."
         )
     )
     parser.add_argument(
@@ -103,6 +115,27 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         metavar=("REF_F1", "REF_F2"),
         help="Hypervolume reference point (default: %(default)s).",
     )
+    parser.add_argument(
+        "--policy",
+        choices=("fixed", "random"),
+        default="fixed",
+        help=(
+            "Action policy: 'fixed' keeps the default mutation probability "
+            "(Phase-0 baseline); 'random' samples a per-generation mutation "
+            "probability around 1/n_vars (default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
+        "--pm-mult-range",
+        nargs=2,
+        type=float,
+        default=[0.5, 5.0],
+        metavar=("LO", "HI"),
+        help=(
+            "Log-uniform multiplier range for the random policy: "
+            "pm_t = (1/n_vars) * exp(U(log LO, log HI)) (default: %(default)s)."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -115,12 +148,16 @@ def build_config(
     mutation_probability: float,
     ref_point: np.ndarray,
     n_reference_points: int,
+    policy: str,
+    pm_mult_range: tuple[float, float],
+    base_mutation_prob: float,
 ) -> dict[str, Any]:
     """Build the configuration dict stored inside each trajectory JSON.
 
     The config fully determines the run: every operator setting is resolved
-    (including the effective mutation probability), and a UTC timestamp is
-    attached for provenance.
+    (including the effective mutation probability), the action policy and
+    its sampling range are recorded, and a UTC timestamp is attached for
+    provenance.
 
     Args:
         problem_name: Benchmark identifier (e.g. ``"zdt1"``).
@@ -132,6 +169,11 @@ def build_config(
             (resolved from ``operators.mutation_prob``).
         ref_point: Hypervolume reference point, shape ``(2,)``.
         n_reference_points: Size of the IGD reference front sample.
+        policy: Action policy identifier (``"fixed"`` or ``"random"``).
+        pm_mult_range: Log-uniform multiplier range ``(lo, hi)`` used by the
+            random policy; recorded for both policies.
+        base_mutation_prob: Base per-variable mutation probability
+            ``1 / n_vars`` around which the random policy samples.
 
     Returns:
         JSON-serializable configuration dict.
@@ -150,10 +192,52 @@ def build_config(
             "eta_c": float(operators.eta_c),
             "eta_m": float(operators.eta_m),
         },
+        "policy": str(policy),
+        "pm_mult_range": [float(pm_mult_range[0]), float(pm_mult_range[1])],
+        "base_mutation_prob": float(base_mutation_prob),
         "ref_point": [float(ref_point[0]), float(ref_point[1])],
         "n_reference_points": int(n_reference_points),
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def make_policy_rng(problem_name: str, seed: int) -> np.random.Generator:
+    """Create the dedicated action-sampling generator of the random policy.
+
+    Seeded by ``(seed, crc32(problem_name))`` so that draws are
+    reproducible per (problem, seed) pair and independent of the NSGA-II
+    generator (action sampling never perturbs the algorithm's randomness).
+
+    Args:
+        problem_name: Benchmark identifier; hashed with ``zlib.crc32``
+            (stable across platforms and Python runs).
+        seed: Random seed of the run.
+
+    Returns:
+        A fresh ``numpy.random.Generator`` (PCG64).
+    """
+    name_hash = zlib.crc32(problem_name.encode("utf-8"))
+    return np.random.Generator(np.random.PCG64([seed & 0xFFFFFFFFFFFFFFFF, name_hash]))
+
+
+def sample_random_mutation_prob(
+    rng: np.random.Generator, base_mutation_prob: float, pm_mult_range: tuple[float, float]
+) -> float:
+    """Sample one generation's mutation probability for the random policy.
+
+    ``pm = base_mutation_prob * exp(U(log lo, log hi))``: log-uniform in the
+    multiplier so multiplicative up- and down-moves are equally likely.
+
+    Args:
+        rng: The dedicated policy generator (see :func:`make_policy_rng`).
+        base_mutation_prob: Base per-variable probability ``1 / n_vars``.
+        pm_mult_range: Multiplier range ``(lo, hi)`` with ``0 < lo <= hi``.
+
+    Returns:
+        The sampled per-variable mutation probability.
+    """
+    lo, hi = float(pm_mult_range[0]), float(pm_mult_range[1])
+    return base_mutation_prob * float(np.exp(rng.uniform(np.log(lo), np.log(hi))))
 
 
 def run_single(
@@ -164,12 +248,18 @@ def run_single(
     n_reference_points: int,
     ref_point: np.ndarray,
     out_dir: Path,
+    policy: str = "fixed",
+    pm_mult_range: tuple[float, float] = (0.5, 5.0),
 ) -> dict[str, Any]:
     """Run one NSGA-II trajectory and save it to JSON.
 
     Initializes the population, records generation 0, then performs
-    ``generations`` steps, recording after each step. Wall-clock runtime
-    covers the full run (initialization + evolution loop).
+    ``generations`` steps, recording after each step. Under the ``"random"``
+    policy each step's mutation probability is sampled from a dedicated
+    generator and injected via ``step(mutation_prob=pm_t)``; the recorded
+    action is the value actually used (``algorithm.current_action()`` after
+    the step). Wall-clock runtime covers the full run (initialization +
+    evolution loop).
 
     Args:
         problem_name: Benchmark identifier accepted by ``get_problem``.
@@ -180,11 +270,24 @@ def run_single(
         ref_point: Hypervolume reference point, shape ``(2,)``.
         out_dir: Output directory; the file is written to
             ``{out_dir}/{problem_name}_nsga2_seed{seed}.json``.
+        policy: ``"fixed"`` (constant default mutation probability) or
+            ``"random"`` (log-uniform per-generation sampling).
+        pm_mult_range: Multiplier range ``(lo, hi)`` for the random policy;
+            must satisfy ``0 < lo <= hi``.
 
     Returns:
         Summary dict with keys ``file``, ``problem``, ``seed``,
         ``final_hv``, ``final_igd``, ``runtime_sec``.
+
+    Raises:
+        ValueError: If ``policy`` is unknown or ``pm_mult_range`` is invalid.
     """
+    if policy not in ("fixed", "random"):
+        raise ValueError(f"unsupported policy {policy!r}; expected 'fixed' or 'random'")
+    lo, hi = float(pm_mult_range[0]), float(pm_mult_range[1])
+    if not lo > 0.0 or hi < lo:
+        raise ValueError(f"pm_mult_range must satisfy 0 < lo <= hi, got {(lo, hi)}")
+
     problem = get_problem(problem_name)
     operators = OperatorConfig()
     algorithm = NSGAII(problem, pop_size=pop_size, operators=operators, seed=seed)
@@ -193,12 +296,18 @@ def run_single(
         reference_front=problem.reference_front(n_points=n_reference_points),
         ref_point=ref_point,
     )
+    base_pm = 1.0 / problem.n_vars
+    policy_rng = make_policy_rng(problem.name, seed) if policy == "random" else None
 
     start = time.perf_counter()
     algorithm.initialize()
     recorder.record(algorithm.generation, algorithm.nondominated_front(), algorithm.current_action())
     for _ in range(generations):
-        algorithm.step()
+        if policy_rng is not None:
+            pm_t = sample_random_mutation_prob(policy_rng, base_pm, (lo, hi))
+            algorithm.step(mutation_prob=pm_t)
+        else:
+            algorithm.step()
         recorder.record(algorithm.generation, algorithm.nondominated_front(), algorithm.current_action())
     runtime_sec = time.perf_counter() - start
 
@@ -208,9 +317,12 @@ def run_single(
         pop_size=pop_size,
         generations=generations,
         operators=operators,
-        mutation_probability=algorithm.current_action()["mutation_probability"],
+        mutation_probability=base_pm,
         ref_point=ref_point,
         n_reference_points=n_reference_points,
+        policy=policy,
+        pm_mult_range=(lo, hi),
+        base_mutation_prob=base_pm,
     )
 
     out_path = out_dir / f"{problem.name}_nsga2_seed{seed}.json"
@@ -248,9 +360,9 @@ def main(argv: Sequence[str] | None = None) -> list[dict[str, Any]]:
     ref_point = np.asarray(args.ref_point, dtype=float)
 
     print(
-        f"Phase-0 dataset generation: {len(args.problems)} problems x "
+        f"Phase-0/1 dataset generation: {len(args.problems)} problems x "
         f"{len(args.seeds)} seeds x {args.generations} generations x "
-        f"pop {args.pop_size}; out_dir={out_dir}"
+        f"pop {args.pop_size}; policy={args.policy} out_dir={out_dir}"
     )
 
     summaries: list[dict[str, Any]] = []
@@ -265,6 +377,8 @@ def main(argv: Sequence[str] | None = None) -> list[dict[str, Any]]:
                     n_reference_points=args.n_reference_points,
                     ref_point=ref_point,
                     out_dir=out_dir,
+                    policy=args.policy,
+                    pm_mult_range=(float(args.pm_mult_range[0]), float(args.pm_mult_range[1])),
                 )
             )
 

@@ -11,7 +11,7 @@
 | Phase | 内容 | 状态 |
 |-------|------|------|
 | Phase 0 | Evolution Dataset Generation (NSGA-II + benchmarks + trajectory recorder) | ✅ 已完成 (2026-09-08) |
-| Phase 1 | Learned Evolution Controller (MLP baseline) | 未开始 |
+| Phase 1 | Learned Evolution Controller (MLP baseline) | ✅ 已完成 (2026-09-08) |
 | Phase 2 | Trajectory-aware Controller (Transformer / Mamba / SSM) | 未开始 |
 | Phase 3 | Advanced Controller (memory, credit assignment, transfer) | 未开始 |
 | Phase 4 | Application (NeuroEvoScientist) | 未开始 |
@@ -21,14 +21,17 @@
 ```
 EvoController/
 ├── benchmarks/          # Problem 抽象基类 + ZDT1/2/3/4/6 基准问题
-├── algorithms/          # NSGA-II（忠实复现 Deb et al. 2002）+ OperatorConfig
+├── algorithms/          # NSGA-II（忠实复现 Deb et al. 2002）+ OperatorConfig + per-step action 注入
 ├── metrics/             # hypervolume / igd / diversity_spread 质量指标
 ├── trajectory/          # EvolutionRecorder：记录 (state, action, reward)
-├── experiments/         # Phase 0 数据集生成脚本
-│   └── generate_dataset.py
-├── tests/               # pytest 测试套件
+├── controller/          # Phase 1：StateEncoder / 数据集构建 / MLPController / ConstantController
+├── experiments/         # generate_dataset.py（fixed/random 策略）、run_phase1.py（训练+评估+ablation）
+├── docs/                # Phase 计划与实验记录
+├── tests/               # pytest 测试套件（159 项）
 └── results/             # 实验输出（git 忽略）
-    └── trajectory/      # 每条 run 一个 JSON + index.json
+    ├── trajectory/          # Phase 0 固定策略轨迹
+    ├── trajectory_random/   # Phase 1 随机策略训练轨迹
+    └── phase1/              # Phase 1 评估结果与轨迹
 ```
 
 ## Quickstart
@@ -81,4 +84,13 @@ reward 约定：第 0 代为 0；之后 `delta_hv = hv_t - hv_{t-1}`，`delta_ig
 
 ## 与后续 Phase 的关系
 
-Phase 0 产出的是**固定策略（fixed-policy）基线轨迹**：action 在整条轨迹上保持不变（NSGA-II 默认算子配置）。这些 (state, action, reward) 数据是 Phase 1 训练 Learned Evolution Controller（验证历史 evolution trajectory 是否包含可预测信息）的数据基础。
+Phase 0 产出的是**固定策略（fixed-policy）基线轨迹**：action 在整条轨迹上保持不变（NSGA-II 默认算子配置）。
+
+Phase 1 在此之上加入**随机策略轨迹**（`--policy random`，每代 pm ~ log-uniform [0.5, 5]×1/n）作为训练数据，训练 MLP Evolution Controller（历史 state 窗口 → mutation probability），并与 fixed baseline 对比（含无历史 / 仅当前 state / 历史窗口三组 ablation，5 held-out seeds，Wilcoxon 检验）：
+
+```bash
+python experiments/generate_dataset.py --policy random --seeds 10 11 12 13 14 15 16 17 18 19 --out-dir results/trajectory_random
+python experiments/run_phase1.py --train-dir results/trajectory_random --out-dir results/phase1
+```
+
+**Phase 1 结论摘要**：controller 在 zdt2（p=0.031, w1）和 zdt3（p=0.031, w10）上显著优于 fixed baseline；zdt1 持平；zdt4 因训练分布退化（随机策略下全部 run 失败）而更差。历史窗口的价值得到初步但问题相关的验证。完整结果与失败分析见 [docs/PHASE1_RESULTS.md](docs/PHASE1_RESULTS.md)。
