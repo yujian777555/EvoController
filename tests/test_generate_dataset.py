@@ -11,6 +11,12 @@ f2 < 1.1, so hypervolume against ref point (1.1, 1.1) stays exactly 0.0 and
 the "NSGA-II improves HV" sanity check cannot hold. Pop 40 / 20 generations
 is the smallest setting found that reliably yields a positive final HV
 (~1.2 s wall clock).
+
+Phase 1.75 additions under test: the normalized ``mutation_multiplier``
+action key (fixed / random / full modes), the inclusive ``--seed-range``
+CLI (including its mutual exclusion with ``--seeds``), and the per-problem
+``n_runs`` / ``n_success`` / ``n_failed`` / ``zero_hv_count`` counts in
+``index.json``.
 """
 
 from __future__ import annotations
@@ -300,3 +306,130 @@ def test_full_action_space_reproducible(tmp_path_factory: pytest.TempPathFactory
     states_a = [t["state"] for t in traj_a["transitions"]]
     states_b = [t["state"] for t in traj_b["transitions"]]
     assert states_a == states_b
+
+
+# --- Phase 1.75: mutation multiplier, --seed-range, per-problem index counts ---
+
+
+def test_fixed_policy_records_mutation_multiplier(trajectory: dict) -> None:
+    """Fixed policy: every action carries multiplier == pm * n_vars == 1.0."""
+    n_vars = trajectory["config"]["n_vars"]
+    for t in trajectory["transitions"]:
+        action = t["action"]
+        assert "mutation_multiplier" in action
+        assert action["mutation_multiplier"] == pytest.approx(
+            action["mutation_probability"] * n_vars
+        )
+        # The fixed policy always uses the resolved default 1 / n_vars.
+        assert action["mutation_multiplier"] == pytest.approx(1.0)
+
+
+def test_random_policy_records_mutation_multiplier(random_trajectory: dict) -> None:
+    """Random policy: multiplier == pm * n_vars and lies in [0.5, 5.0]."""
+    n_vars = random_trajectory["config"]["n_vars"]
+    transitions = random_trajectory["transitions"]
+    # Generation 0 is recorded before any step: default action, multiplier 1.0.
+    assert transitions[0]["action"]["mutation_multiplier"] == pytest.approx(1.0)
+    multipliers = np.array([t["action"]["mutation_multiplier"] for t in transitions])
+    pms = np.array([t["action"]["mutation_probability"] for t in transitions])
+    assert multipliers == pytest.approx(pms * n_vars)
+    assert float(np.std(multipliers)) > 0.0
+    sampled = multipliers[1:]
+    assert np.all(sampled >= 0.5)
+    assert np.all(sampled <= 5.0)
+
+
+def test_full_action_space_records_mutation_multiplier(full_trajectory: dict) -> None:
+    """Full space: multiplier == pm * n_vars and lies in [0.25, 8.0]."""
+    n_vars = full_trajectory["config"]["n_vars"]
+    transitions = full_trajectory["transitions"]
+    assert transitions[0]["action"]["mutation_multiplier"] == pytest.approx(1.0)
+    multipliers = np.array([t["action"]["mutation_multiplier"] for t in transitions])
+    pms = np.array([t["action"]["mutation_probability"] for t in transitions])
+    assert multipliers == pytest.approx(pms * n_vars)
+    sampled = multipliers[1:]
+    assert np.all(sampled >= 0.25)
+    assert np.all(sampled <= 8.0)
+
+
+def test_seed_range_expands_to_inclusive_seeds() -> None:
+    """--seed-range START STOP expands to the inclusive seed list START..STOP."""
+    args = generate_dataset.parse_args(["--seed-range", "200", "204"])
+    assert args.seeds == [200, 201, 202, 203, 204]
+    args = generate_dataset.parse_args(["--seed-range", "7", "7"])
+    assert args.seeds == [7]
+
+
+def test_seeds_default_unchanged() -> None:
+    """Without --seeds/--seed-range the default seed grid is preserved."""
+    args = generate_dataset.parse_args([])
+    assert args.seeds == list(generate_dataset.DEFAULT_SEEDS)
+    assert args.seed_range is None
+
+
+def test_seed_range_mutually_exclusive_with_seeds() -> None:
+    """Passing both --seeds and --seed-range is a CLI error."""
+    with pytest.raises(SystemExit):
+        generate_dataset.parse_args(["--seeds", "1", "2", "--seed-range", "0", "3"])
+
+
+def test_seed_range_rejects_reversed_range() -> None:
+    """--seed-range requires START <= STOP."""
+    with pytest.raises(SystemExit):
+        generate_dataset.parse_args(["--seed-range", "5", "2"])
+
+
+def test_seed_range_end_to_end(tmp_path: Path) -> None:
+    """--seed-range drives a full generation run (2 seeds -> 2 files)."""
+    summaries = generate_dataset.main(
+        [
+            "--problems", _PROBLEM,
+            "--seed-range", "0", "1",
+            "--generations", str(_GENERATIONS),
+            "--pop-size", str(_POP_SIZE),
+            "--out-dir", str(tmp_path),
+        ]
+    )
+    assert [s["seed"] for s in summaries] == [0, 1]
+    for summary in summaries:
+        assert (tmp_path / summary["file"]).exists()
+    with (tmp_path / "index.json").open(encoding="utf-8") as fh:
+        index = json.load(fh)
+    assert index["n_runs"] == 2
+    stats = index["per_problem"][_PROBLEM]
+    assert stats["n_runs"] == 2
+    assert stats["n_success"] == 2
+    assert stats["n_failed"] == 0
+    assert stats["zero_hv_count"] == 0
+
+
+def test_index_per_problem_counts(dataset: Path) -> None:
+    """index.json reports per-problem success/failure (zero-HV) counts."""
+    with (dataset / "index.json").open(encoding="utf-8") as fh:
+        index = json.load(fh)
+    assert index["per_problem"] == {
+        _PROBLEM: {"n_runs": 1, "n_success": 1, "n_failed": 0, "zero_hv_count": 0}
+    }
+
+
+def test_index_per_problem_counts_zero_hv(tmp_path: Path) -> None:
+    """A run whose final HV is exactly 0 is counted as failed/zero-HV.
+
+    Pop 20 / 5 generations on ZDT1 never reaches f2 < 1.1, so the final
+    hypervolume against ref point (1.1, 1.1) stays exactly 0.0 (see the
+    module docstring).
+    """
+    summaries = generate_dataset.main(
+        [
+            "--problems", _PROBLEM,
+            "--seeds", str(_SEED),
+            "--generations", "5",
+            "--pop-size", "20",
+            "--out-dir", str(tmp_path),
+        ]
+    )
+    assert summaries[0]["final_hv"] == 0.0
+    with (tmp_path / "index.json").open(encoding="utf-8") as fh:
+        index = json.load(fh)
+    stats = index["per_problem"][_PROBLEM]
+    assert stats == {"n_runs": 1, "n_success": 0, "n_failed": 1, "zero_hv_count": 1}

@@ -30,10 +30,25 @@ Action spaces (``--action-space``):
   randomized actions and widens the default ``--pm-mult-range`` to
   ``0.25 8.0``.
 
-The stored ``config`` dict fully determines the run (problem, algorithm,
-population size, generation count, resolved operator settings, policy
-settings, reference point, reference-front size, and a UTC timestamp),
-satisfying the EvoController experiment-recording rule (AGENTS.md Rule 2).
+The stored ``config`` dict fully determines the run (problem, ``n_vars``,
+algorithm, population size, generation count, resolved operator settings,
+policy settings, reference point, reference-front size, and a UTC
+timestamp), satisfying the EvoController experiment-recording rule
+(AGENTS.md Rule 2).
+
+Phase 1.75 additions:
+
+* Every recorded action dict carries ``mutation_multiplier``, the
+  scale-normalized mutation action ``mutation_probability * n_vars``
+  (the natural NSGA-II scale ``1 / n_vars`` maps to multiplier 1.0),
+  computed from the action actually used in each generation.
+* ``--seed-range START STOP`` expands to the inclusive seed list
+  ``START..STOP``; it is mutually exclusive with ``--seeds``.
+* ``index.json`` additionally reports per-problem run counts:
+  ``n_runs``, ``n_success`` (final HV > 0), ``n_failed``, and
+  ``zero_hv_count`` (final HV == 0). A per-problem failure threshold is
+  deliberately not decided at generation time, so only the exact zero-HV
+  indicator is recorded here.
 
 Example:
     ``python experiments/generate_dataset.py`` runs the full default grid:
@@ -79,13 +94,24 @@ SIGMA_SAMPLE_RANGE: tuple[float, float] = (0.02, 0.3)
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for dataset generation.
 
+    ``--seeds`` and ``--seed-range START STOP`` are mutually exclusive;
+    ``--seed-range`` expands to the inclusive list ``START..STOP`` and is
+    stored into ``args.seeds`` so downstream code sees one resolved seed
+    list. When neither is given, ``args.seeds`` falls back to
+    ``DEFAULT_SEEDS``.
+
     Args:
         argv: Argument list to parse; ``None`` reads ``sys.argv``.
 
     Returns:
-        Parsed namespace with problems, seeds, generations, pop_size,
-        out_dir, n_reference_points, ref_point, policy, action_space, and
-        pm_mult_range.
+        Parsed namespace with problems, seeds (resolved), seed_range,
+        generations, pop_size, out_dir, n_reference_points, ref_point,
+        policy, action_space, and pm_mult_range.
+
+    Raises:
+        SystemExit: If both ``--seeds`` and ``--seed-range`` are given, or
+            ``--seed-range`` has ``START > STOP`` (argparse error, exit
+            code 2).
     """
     parser = argparse.ArgumentParser(
         description=(
@@ -99,12 +125,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=list(DEFAULT_PROBLEMS),
         help="Benchmark problems (default: %(default)s).",
     )
-    parser.add_argument(
+    seed_group = parser.add_mutually_exclusive_group()
+    seed_group.add_argument(
         "--seeds",
         nargs="+",
         type=int,
-        default=list(DEFAULT_SEEDS),
-        help="Random seeds (default: %(default)s).",
+        default=None,
+        help="Random seeds (default: %s)." % (list(DEFAULT_SEEDS),),
+    )
+    seed_group.add_argument(
+        "--seed-range",
+        nargs=2,
+        type=int,
+        default=None,
+        metavar=("START", "STOP"),
+        help=(
+            "Inclusive seed range; expands to seeds START..STOP "
+            "(mutually exclusive with --seeds)."
+        ),
     )
     parser.add_argument(
         "--generations",
@@ -173,7 +211,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "--action-space full."
         ),
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.seed_range is not None:
+        start, stop = int(args.seed_range[0]), int(args.seed_range[1])
+        if stop < start:
+            parser.error(
+                f"--seed-range requires START <= STOP, got {start} {stop}"
+            )
+        args.seeds = list(range(start, stop + 1))
+    elif args.seeds is None:
+        args.seeds = list(DEFAULT_SEEDS)
+    return args
 
 
 def build_config(
@@ -314,6 +362,31 @@ def sample_full_action(
     return mutation_operator, pm, exploration_strength
 
 
+def action_with_multiplier(action: dict[str, Any], n_vars: int) -> dict[str, Any]:
+    """Attach the scale-normalized mutation multiplier to an action dict.
+
+    Phase 1.75 records, alongside the raw per-variable mutation
+    probability, the normalized multiplier ``pm * n_vars`` so the natural
+    NSGA-II scale ``1 / n_vars`` maps to multiplier 1.0 regardless of
+    problem dimension (see ``docs/PHASE1_75_PLAN.md`` Task 1). The
+    multiplier is computed from the action actually used, i.e. from
+    ``NSGAII.current_action()["mutation_probability"]``.
+
+    Args:
+        action: Action dict as returned by ``NSGAII.current_action()``;
+            must contain ``"mutation_probability"``. Not mutated.
+        n_vars: Number of decision variables of the problem.
+
+    Returns:
+        A copy of ``action`` with the additional float key
+        ``"mutation_multiplier"`` (persisted by the trajectory recorder as
+        an extra action key).
+    """
+    enriched = dict(action)
+    enriched["mutation_multiplier"] = float(action["mutation_probability"]) * int(n_vars)
+    return enriched
+
+
 def run_single(
     problem_name: str,
     seed: int,
@@ -336,8 +409,10 @@ def run_single(
     sampled as well (see :func:`sample_full_action`) and injected via
     ``step(mutation_prob=..., mutation_operator=...,
     exploration_strength=...)``. The recorded action is the value actually
-    used (``algorithm.current_action()`` after the step). Wall-clock
-    runtime covers the full run (initialization + evolution loop).
+    used (``algorithm.current_action()`` after the step), enriched with the
+    normalized ``mutation_multiplier`` (see :func:`action_with_multiplier`).
+    Wall-clock runtime covers the full run (initialization + evolution
+    loop).
 
     Args:
         problem_name: Benchmark identifier accepted by ``get_problem``.
@@ -394,7 +469,11 @@ def run_single(
 
     start = time.perf_counter()
     algorithm.initialize()
-    recorder.record(algorithm.generation, algorithm.nondominated_front(), algorithm.current_action())
+    recorder.record(
+        algorithm.generation,
+        algorithm.nondominated_front(),
+        action_with_multiplier(algorithm.current_action(), problem.n_vars),
+    )
     for _ in range(generations):
         if action_space == "full":
             assert policy_rng is not None
@@ -407,7 +486,11 @@ def run_single(
             algorithm.step(mutation_prob=pm_t)
         else:
             algorithm.step()
-        recorder.record(algorithm.generation, algorithm.nondominated_front(), algorithm.current_action())
+        recorder.record(
+            algorithm.generation,
+            algorithm.nondominated_front(),
+            action_with_multiplier(algorithm.current_action(), problem.n_vars),
+        )
     runtime_sec = time.perf_counter() - start
 
     config = build_config(
@@ -452,7 +535,10 @@ def main(argv: Sequence[str] | None = None) -> list[dict[str, Any]]:
         argv: Optional argument list; ``None`` reads ``sys.argv``.
 
     Returns:
-        List of per-run summary dicts (also written to ``index.json``).
+        List of per-run summary dicts (also written to ``index.json``,
+        together with per-problem run counts: ``n_runs``, ``n_success``
+        (final HV > 0), ``n_failed``, and ``zero_hv_count`` (final
+        HV == 0)).
     """
     args = parse_args(argv)
     out_dir = Path(args.out_dir)
@@ -490,10 +576,27 @@ def main(argv: Sequence[str] | None = None) -> list[dict[str, Any]]:
                 )
             )
 
+    per_problem: dict[str, dict[str, int]] = {}
+    for summary in summaries:
+        stats = per_problem.setdefault(
+            summary["problem"],
+            {"n_runs": 0, "n_success": 0, "n_failed": 0, "zero_hv_count": 0},
+        )
+        stats["n_runs"] += 1
+        # Failure is defined as a final hypervolume of exactly 0 (no front
+        # point dominates the reference point); a per-problem failure
+        # threshold is deliberately not decided at generation time.
+        if float(summary["final_hv"]) <= 0.0:
+            stats["n_failed"] += 1
+            stats["zero_hv_count"] += 1
+        else:
+            stats["n_success"] += 1
+
     index_path = out_dir / "index.json"
     index_payload = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "n_runs": len(summaries),
+        "per_problem": per_problem,
         "runs": summaries,
     }
     with index_path.open("w", encoding="utf-8") as fh:
