@@ -24,6 +24,16 @@ log-prediction clipped to the operator-specific range
 ``eta_m``) or :data:`GAUSSIAN_EXPLORATION_RANGE` (the Gaussian ``sigma``).
 These are exactly the ranges the Phase-1.5 dataset generator samples from
 (``experiments.generate_dataset``).
+
+Phase 1.75 adds the ``mutation_target="multiplier"`` mode: the pm head is
+then trained on — and interpreted as — the log of the *normalized* mutation
+multiplier ``pm * n_vars`` (see :mod:`controller.action_normalization`), so
+the same network serves problems of different dimensions without a scale
+confound. At deployment the prediction is clipped to
+:data:`MULTIPLIER_RANGE` in log space and divided by the problem's
+``n_vars``. The default ``mutation_target="absolute"`` reproduces the
+Phase-1.5 behavior byte-for-byte, including for legacy checkpoints that
+predate the mode flag.
 """
 
 import math
@@ -36,6 +46,8 @@ from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
+from controller.action_normalization import pm_from_log_multiplier
+
 #: Operator classes of the operator head, in class-index order.
 OPERATOR_CLASSES: tuple[str, ...] = ("polynomial", "gaussian")
 
@@ -46,6 +58,14 @@ POLYNOMIAL_EXPLORATION_RANGE: tuple[float, float] = (2.0, 50.0)
 #: Deployment clip range of the exploration strength for the Gaussian
 #: operator (``sigma``); matches ``SIGMA_SAMPLE_RANGE`` of the generator.
 GAUSSIAN_EXPLORATION_RANGE: tuple[float, float] = (0.02, 0.3)
+
+#: Deployment clip range of the normalized mutation multiplier
+#: (``pm * n_vars``) in ``mutation_target="multiplier"`` mode; matches
+#: ``FULL_ACTION_PM_MULT_RANGE`` of the Phase-1.5/1.75 dataset generator.
+MULTIPLIER_RANGE: tuple[float, float] = (0.25, 8.0)
+
+#: Valid values of the ``mutation_target`` mode flag.
+MUTATION_TARGETS: tuple[str, ...] = ("absolute", "multiplier")
 
 
 def _clip_log(log_value: float, lo: float, hi: float) -> float:
@@ -123,6 +143,7 @@ class MultiHeadController:
         seed: int = 0,
         lr: float = 1e-3,
         name: str = "mlp2",
+        mutation_target: str = "absolute",
     ) -> None:
         """Initialize the controller and reseed the torch/numpy RNGs.
 
@@ -135,12 +156,22 @@ class MultiHeadController:
                 ``np.random.seed``.
             lr: Adam learning rate.
             name: Controller identifier used in experiment records.
+            mutation_target: Interpretation of the pm head:
+                ``"absolute"`` (default; log mutation probability, the
+                Phase-1.5 behavior) or ``"multiplier"`` (log of the
+                normalized multiplier ``pm * n_vars``, Phase 1.75).
 
         Raises:
-            ValueError: If ``input_dim`` < 1.
+            ValueError: If ``input_dim`` < 1 or ``mutation_target`` is
+                not one of :data:`MUTATION_TARGETS`.
         """
         if int(input_dim) < 1:
             raise ValueError(f"input_dim must be >= 1, got {input_dim}")
+        if mutation_target not in MUTATION_TARGETS:
+            raise ValueError(
+                f"mutation_target must be one of {MUTATION_TARGETS}, got "
+                f"{mutation_target!r}"
+            )
         torch.manual_seed(seed)
         np.random.seed(seed)
         self._input_dim = int(input_dim)
@@ -148,6 +179,7 @@ class MultiHeadController:
         self._seed = int(seed)
         self._lr = float(lr)
         self.name = str(name)
+        self._mutation_target = str(mutation_target)
         self._net = _MultiHeadNet(self._input_dim, self._hidden_dims)
 
     @property
@@ -159,6 +191,11 @@ class MultiHeadController:
     def hidden_dims(self) -> tuple[int, ...]:
         """Hidden layer widths of the shared trunk."""
         return self._hidden_dims
+
+    @property
+    def mutation_target(self) -> str:
+        """Pm-head interpretation: ``"absolute"`` or ``"multiplier"``."""
+        return self._mutation_target
 
     def fit(
         self,
@@ -331,6 +368,7 @@ class MultiHeadController:
         encoder: Any,
         pm_min: float,
         pm_max: float,
+        n_vars: int | None = None,
     ) -> dict[str, Any]:
         """Map an evolution history window to a full Phase-1.5 action dict.
 
@@ -340,22 +378,47 @@ class MultiHeadController:
             encoder: Fitted encoder matching ``input_dim``
                 (:class:`controller.StateEncoder` or
                 :class:`controller.ProblemAwareEncoder`).
-            pm_min: Lower bound for the mutation probability (> 0).
-            pm_max: Upper bound for the mutation probability.
+            pm_min: Lower bound for the mutation probability (> 0). Used
+                only in ``mutation_target="absolute"`` mode.
+            pm_max: Upper bound for the mutation probability. Used only in
+                ``mutation_target="absolute"`` mode.
+            n_vars: Decision-variable count of the problem being solved.
+                Required in ``mutation_target="multiplier"`` mode (the pm
+                head output is then a log-multiplier that must be scaled by
+                ``1 / n_vars``); ignored in ``"absolute"`` mode.
 
         Returns:
             Dict with keys ``"mutation_operator"`` (argmax of the operator
             probabilities, ``"polynomial"`` or ``"gaussian"``),
-            ``"mutation_probability"`` (``exp`` of the log-prediction
-            clipped to ``[pm_min, pm_max]``), and
-            ``"exploration_strength"`` (``exp`` of the log-prediction
-            clipped to :data:`POLYNOMIAL_EXPLORATION_RANGE` when the chosen
-            operator is polynomial, else :data:`GAUSSIAN_EXPLORATION_RANGE`).
+            ``"mutation_probability"``, and ``"exploration_strength"``
+            (``exp`` of the log-prediction clipped to
+            :data:`POLYNOMIAL_EXPLORATION_RANGE` when the chosen operator
+            is polynomial, else :data:`GAUSSIAN_EXPLORATION_RANGE`). In
+            ``"absolute"`` mode the mutation probability is ``exp`` of the
+            log-prediction clipped to ``[pm_min, pm_max]``; in
+            ``"multiplier"`` mode the log-prediction is clipped to
+            ``[log 0.25, log 8.0]`` (see :data:`MULTIPLIER_RANGE`) and the
+            probability is ``exp(prediction) / n_vars``.
+
+        Raises:
+            ValueError: If the pm bounds are invalid (absolute mode), or
+                if ``mutation_target="multiplier"`` and ``n_vars`` is
+                missing or < 1.
         """
         features = encoder.transform(history).reshape(1, -1)
         op_probs, log_pm, log_expl = self.predict(features)
         operator = OPERATOR_CLASSES[int(np.argmax(op_probs[0]))]
-        pm = math.exp(_clip_log(float(log_pm[0]), pm_min, pm_max))
+        if self._mutation_target == "multiplier":
+            if n_vars is None:
+                raise ValueError(
+                    "n_vars is required when mutation_target='multiplier'"
+                )
+            log_multiplier = _clip_log(
+                float(log_pm[0]), MULTIPLIER_RANGE[0], MULTIPLIER_RANGE[1]
+            )
+            pm = pm_from_log_multiplier(log_multiplier, n_vars)
+        else:
+            pm = math.exp(_clip_log(float(log_pm[0]), pm_min, pm_max))
         lo, hi = (
             POLYNOMIAL_EXPLORATION_RANGE
             if operator == "polynomial"
@@ -383,6 +446,7 @@ class MultiHeadController:
                 "seed": self._seed,
                 "lr": self._lr,
                 "name": self.name,
+                "mutation_target": self._mutation_target,
             },
             "state_dict": self._net.state_dict(),
         }
@@ -391,6 +455,10 @@ class MultiHeadController:
     @classmethod
     def load(cls, path: str | Path) -> "MultiHeadController":
         """Load a controller saved with :meth:`save`.
+
+        Checkpoints written before Phase 1.75 have no ``mutation_target``
+        key; they load as ``"absolute"`` controllers, preserving the exact
+        Phase-1.5 behavior.
 
         Args:
             path: Path to the file written by :meth:`save`.
@@ -406,6 +474,7 @@ class MultiHeadController:
             seed=int(config["seed"]),
             lr=float(config["lr"]),
             name=str(config.get("name", "mlp2")),
+            mutation_target=str(config.get("mutation_target", "absolute")),
         )
         controller._net.load_state_dict(payload["state_dict"])
         controller._net.eval()

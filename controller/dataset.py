@@ -15,12 +15,19 @@ Phase 1.5 adds :func:`build_multihead_samples`, which targets the full
 action triple ``(mutation_operator, mutation_probability,
 exploration_strength)`` with the same history alignment and advantage
 weights.
+
+Phase 1.75 adds :func:`load_trajectory_records` (transitions plus run-level
+metadata such as ``n_vars``) and the ``mutation_target="multiplier"`` mode
+of :func:`build_multihead_samples`, which regresses the log of the
+normalized mutation multiplier ``pm * n_vars`` (see
+:mod:`controller.action_normalization`) instead of the absolute log
+mutation probability.
 """
 
 import json
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -62,6 +69,65 @@ def load_trajectories(directory: str | Path) -> list[list[dict[str, Any]]]:
             sorted(transitions, key=lambda t: int(t["generation"]))
         )
     return trajectories
+
+
+def load_trajectory_records(directory: str | Path) -> list[dict[str, Any]]:
+    """Load every recorded trajectory with its run-level metadata.
+
+    Phase-1.75 variant of :func:`load_trajectories` that keeps the
+    per-run context the normalized mutation target needs (problem name and
+    ``n_vars``) alongside the transitions. Reads each ``*.json`` file
+    except ``index.json`` in sorted filename order (deterministic) and
+    sorts each trajectory's transitions by ``generation``.
+
+    Args:
+        directory: Directory containing trajectory JSON files as written
+            by ``EvolutionRecorder.save`` (via
+            ``experiments.generate_dataset``).
+
+    Returns:
+        List of records, each a dict with keys ``"problem"`` (benchmark
+        name from the stored config), ``"n_vars"`` (decision-variable
+        count from the stored config), ``"seed"``, ``"runtime_sec"``,
+        ``"config"`` (the full stored config dict), and ``"transitions"``
+        (generation-sorted transition list).
+
+    Raises:
+        NotADirectoryError: If ``directory`` is not an existing directory.
+        ValueError: If a trajectory file has no ``transitions`` list or
+            its config lacks ``"problem"``/``"n_vars"``.
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        raise NotADirectoryError(f"not a directory: {directory}")
+    records: list[dict[str, Any]] = []
+    for path in sorted(directory.glob("*.json")):
+        if path.name == "index.json":
+            continue
+        with path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        transitions = payload.get("transitions")
+        if transitions is None:
+            raise ValueError(f"{path} has no 'transitions' list")
+        config = payload.get("config")
+        if not isinstance(config, dict):
+            raise ValueError(f"{path} has no 'config' dict")
+        missing = [key for key in ("problem", "n_vars") if key not in config]
+        if missing:
+            raise ValueError(f"{path} config is missing required keys: {missing}")
+        records.append(
+            {
+                "problem": str(config["problem"]),
+                "n_vars": int(config["n_vars"]),
+                "seed": int(payload["seed"]),
+                "runtime_sec": float(payload["runtime_sec"]),
+                "config": config,
+                "transitions": sorted(
+                    transitions, key=lambda t: int(t["generation"])
+                ),
+            }
+        )
+    return records
 
 
 def merge_state_reward(transition: dict[str, Any]) -> dict[str, float]:
@@ -183,6 +249,9 @@ def build_multihead_samples(
     trajectories: list[list[dict[str, Any]]],
     encoder: StateEncoder | ProblemAwareEncoder,
     window: int,
+    *,
+    mutation_target: str = "absolute",
+    n_vars_list: Sequence[int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Turn trajectories into weighted multi-head supervised samples.
 
@@ -198,8 +267,13 @@ def build_multihead_samples(
 
     * ``y_op``: operator class index — ``0`` for ``"polynomial"``, ``1``
       for ``"gaussian"`` (see :data:`OPERATOR_TO_INDEX`).
-    * ``y_logpm``: ``log`` of the mutation probability, clipped from below
-      at ``1e-12`` so non-positive records stay finite.
+    * ``y_logpm``: with ``mutation_target="absolute"`` (default, the
+      Phase-1.5 behavior), ``log`` of the mutation probability, clipped
+      from below at ``1e-12`` so non-positive records stay finite. With
+      ``mutation_target="multiplier"`` (Phase 1.75), ``log`` of the
+      *normalized* mutation multiplier ``pm * n_vars_j`` of the source
+      trajectory — see :mod:`controller.action_normalization` — which
+      removes the trivial problem-scale difference from the target.
     * ``y_logexpl``: ``log`` of the exploration strength, clipped the same
       way. **Imputation:** for legacy Phase-0/1 trajectories whose action
       dicts lack ``"exploration_strength"``, the operator's config default
@@ -215,6 +289,13 @@ def build_multihead_samples(
             for :class:`ProblemAwareEncoder`).
         window: History window in generations; should match
             ``encoder.window``.
+        mutation_target: ``"absolute"`` (default; log mutation probability
+            target, byte-identical to the Phase-1.5 behavior) or
+            ``"multiplier"`` (log of ``pm * n_vars`` per trajectory).
+        n_vars_list: Per-trajectory decision-variable counts; required when
+            ``mutation_target="multiplier"`` and ignored otherwise. Entry
+            ``j`` must be the ``n_vars`` of the problem that produced
+            ``trajectories[j]`` (e.g. from :func:`load_trajectory_records`).
 
     Returns:
         Tuple ``(X, y_op, y_logpm, y_logexpl, w, traj_ids)``: ``X`` of
@@ -224,14 +305,40 @@ def build_multihead_samples(
         if no trajectory has at least two transitions.
 
     Raises:
-        ValueError: If ``window`` < 1 or an action's ``mutation_operator``
-            is not one of ``"polynomial"``/``"gaussian"``.
+        ValueError: If ``window`` < 1, an action's ``mutation_operator``
+            is not one of ``"polynomial"``/``"gaussian"``,
+            ``mutation_target`` is unknown, or
+            ``mutation_target="multiplier"`` is requested without a
+            well-formed ``n_vars_list`` (present, one positive entry per
+            trajectory).
         KeyError: If an action dict lacks ``"mutation_operator"`` or
             ``"mutation_probability"`` (both are guaranteed by the
             recorder schema).
     """
     if int(window) < 1:
         raise ValueError(f"window must be >= 1, got {window}")
+    if mutation_target not in ("absolute", "multiplier"):
+        raise ValueError(
+            f"mutation_target must be 'absolute' or 'multiplier', got "
+            f"{mutation_target!r}"
+        )
+    n_vars_per_traj: list[int] | None = None
+    if mutation_target == "multiplier":
+        if n_vars_list is None:
+            raise ValueError(
+                "n_vars_list is required when mutation_target='multiplier'"
+            )
+        if len(n_vars_list) != len(trajectories):
+            raise ValueError(
+                f"n_vars_list must have one entry per trajectory: got "
+                f"{len(n_vars_list)} for {len(trajectories)} trajectories"
+            )
+        n_vars_per_traj = [int(n) for n in n_vars_list]
+        for j, n_vars in enumerate(n_vars_per_traj):
+            if n_vars < 1:
+                raise ValueError(
+                    f"n_vars_list[{j}] must be >= 1, got {n_vars}"
+                )
     x_rows: list[np.ndarray] = []
     y_op_vals: list[int] = []
     y_logpm_vals: list[float] = []
@@ -263,7 +370,10 @@ def build_multihead_samples(
                 exploration = OPERATOR_DEFAULT_EXPLORATION[operator]
             x_rows.append(encoder.transform(history))
             y_op_vals.append(OPERATOR_TO_INDEX[operator])
-            y_logpm_vals.append(math.log(max(pm, _MIN_POSITIVE_TARGET)))
+            log_pm_target = math.log(max(pm, _MIN_POSITIVE_TARGET))
+            if n_vars_per_traj is not None:
+                log_pm_target += math.log(n_vars_per_traj[j])
+            y_logpm_vals.append(log_pm_target)
             y_logexpl_vals.append(math.log(max(exploration, _MIN_POSITIVE_TARGET)))
             w_vals.append(max(float(rewards[t]) - mean_reward, 0.0) + 1e-6)
             id_vals.append(j)
