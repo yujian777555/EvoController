@@ -12,6 +12,7 @@
 |-------|------|------|
 | Phase 0 | Evolution Dataset Generation (NSGA-II + benchmarks + trajectory recorder) | ✅ 已完成 (2026-09-08) |
 | Phase 1 | Learned Evolution Controller (MLP baseline) | ✅ 已完成 (2026-09-08) |
+| Phase 1.5 | Evolution Decision Understanding（action 动态分析 + 扩展 action 空间 + problem 特征） | ✅ 已完成 (2026-09-09) |
 | Phase 2 | Trajectory-aware Controller (Transformer / Mamba / SSM) | 未开始 |
 | Phase 3 | Advanced Controller (memory, credit assignment, transfer) | 未开始 |
 | Phase 4 | Application (NeuroEvoScientist) | 未开始 |
@@ -20,18 +21,22 @@
 
 ```
 EvoController/
-├── benchmarks/          # Problem 抽象基类 + ZDT1/2/3/4/6 基准问题
-├── algorithms/          # NSGA-II（忠实复现 Deb et al. 2002）+ OperatorConfig + per-step action 注入
+├── benchmarks/          # Problem 抽象基类 + ZDT1/2/3/4/6 基准问题 + describe() 问题特征
+├── algorithms/          # NSGA-II（忠实复现 Deb et al. 2002）+ per-step action 注入（pm/operator/exploration）
 ├── metrics/             # hypervolume / igd / diversity_spread 质量指标
 ├── trajectory/          # EvolutionRecorder：记录 (state, action, reward)
-├── controller/          # Phase 1：StateEncoder / 数据集构建 / MLPController / ConstantController
-├── experiments/         # generate_dataset.py（fixed/random 策略）、run_phase1.py（训练+评估+ablation）
+├── controller/          # StateEncoder / ProblemAwareEncoder / MLPController / MultiHeadController / ConstantController
+├── experiments/         # generate_dataset.py（fixed/random × pm/full action 空间）
+│                        # run_phase1.py（MLP 基线）、run_phase1_5.py（controller v2）、analyze_actions.py（action 动态分析）
 ├── docs/                # Phase 计划与实验记录
-├── tests/               # pytest 测试套件（159 项）
+├── tests/               # pytest 测试套件（246 项）
 └── results/             # 实验输出（git 忽略）
     ├── trajectory/          # Phase 0 固定策略轨迹
-    ├── trajectory_random/   # Phase 1 随机策略训练轨迹
-    └── phase1/              # Phase 1 评估结果与轨迹
+    ├── trajectory_random/   # Phase 1 随机策略轨迹（仅 pm）
+    ├── trajectory_full/     # Phase 1.5 全 action 空间随机轨迹
+    ├── phase1/              # Phase 1 评估结果
+    ├── phase1_5/            # Phase 1.5 评估结果
+    └── analysis/            # action 动态分析与图表
 ```
 
 ## Quickstart
@@ -72,7 +77,8 @@ python experiments/generate_dataset.py
     {
       "generation": 0,
       "state": {"generation": 0, "hv": ..., "igd": ..., "diversity": ...},
-      "action": {"mutation_operator": "polynomial", "mutation_probability": 0.0333},
+      "action": {"mutation_operator": "polynomial", "mutation_probability": 0.0333,
+                 "exploration_strength": 20.0},
       "reward": {"delta_hv": 0.0, "delta_igd": 0.0}
     }
   ],
@@ -94,3 +100,13 @@ python experiments/run_phase1.py --train-dir results/trajectory_random --out-dir
 ```
 
 **Phase 1 结论摘要**：controller 在 zdt2（p=0.031, w1）和 zdt3（p=0.031, w10）上显著优于 fixed baseline；zdt1 持平；zdt4 因训练分布退化（随机策略下全部 run 失败）而更差。历史窗口的价值得到初步但问题相关的验证。完整结果与失败分析见 [docs/PHASE1_RESULTS.md](docs/PHASE1_RESULTS.md)。
+
+Phase 1.5 扩展 action 空间（operator 选择 + exploration strength）并加入 problem-aware 特征，训练数据扩充到 125 条轨迹（含全 action 空间随机策略）：
+
+```bash
+python experiments/generate_dataset.py --policy random --action-space full --seeds 20 21 22 23 24 25 26 27 28 29 --out-dir results/trajectory_full
+python experiments/run_phase1_5.py        # 训练 mlp2 / mlp2_nopf 并评估，复用 Phase 1 三臂结果
+python experiments/analyze_actions.py     # action 动态分析（Phase 1 轨迹）
+```
+
+**Phase 1.5 结论摘要**：核心问题"controller 学到的是状态依赖决策还是全局最优常数"——答案是**前者**。mlp2_nopf 在全部 5 个问题上显著优于 fixed（p=0.031，5/5 全胜），在 4/5 问题上显著优于 constant 基线（p=0.031），zdt4 的 Phase 1 失败被修复（HV 0.52 vs fixed 0.26）。action 动态分析证实 pm 随收敛状态自适应变化（退火式策略），且行为跨问题显著不同（p=1.96e-291）。problem-aware 显式特征未带来额外收益（state 特征已隐式编码问题身份）。完整分析见 [docs/PHASE1_5_RESULTS.md](docs/PHASE1_5_RESULTS.md)。

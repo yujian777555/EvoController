@@ -10,6 +10,11 @@ of generation ``t`` was chosen — the target is ``log`` of the mutation
 probability used at ``t``, and the sample weight rewards above-average
 outcomes: ``max(r_t - mean(r_trajectory), 0) + 1e-6`` with
 ``r_t = delta_hv_t + delta_igd_t``.
+
+Phase 1.5 adds :func:`build_multihead_samples`, which targets the full
+action triple ``(mutation_operator, mutation_probability,
+exploration_strength)`` with the same history alignment and advantage
+weights.
 """
 
 import json
@@ -19,7 +24,7 @@ from typing import Any
 
 import numpy as np
 
-from controller.state_encoder import STATE_FEATURES, StateEncoder
+from controller.state_encoder import STATE_FEATURES, ProblemAwareEncoder, StateEncoder
 
 
 def load_trajectories(directory: str | Path) -> list[list[dict[str, Any]]]:
@@ -148,6 +153,134 @@ def build_supervised_samples(
     return (
         np.vstack(x_rows),
         np.asarray(y_vals, dtype=float),
+        np.asarray(w_vals, dtype=float),
+        np.asarray(id_vals, dtype=int),
+    )
+
+
+#: Operator -> class-index mapping of the Phase-1.5 multi-head targets
+#: (``0 = polynomial``, ``1 = gaussian``), matching
+#: ``controller.multihead_controller.OPERATOR_CLASSES``.
+OPERATOR_TO_INDEX: dict[str, int] = {"polynomial": 0, "gaussian": 1}
+
+#: Imputed exploration strength for trajectories recorded before Phase 1.5
+#: whose action dicts lack ``"exploration_strength"``: the NSGA-II
+#: ``OperatorConfig`` defaults (``eta_m = 20.0`` for polynomial mutation,
+#: ``gaussian_sigma = 0.1`` for Gaussian mutation). These are exactly the
+#: values ``NSGAII.current_action()`` would have reported had the key been
+#: recorded, so the imputation is neutral with respect to the algorithm's
+#: own defaults.
+OPERATOR_DEFAULT_EXPLORATION: dict[str, float] = {"polynomial": 20.0, "gaussian": 0.1}
+
+#: Positivity floor applied to target values before taking their logarithm,
+#: so degenerate (zero/negative) recorded actions stay finite instead of
+#: raising. Unlike :func:`build_supervised_samples`, which rejects
+#: non-positive mutation probabilities, the multi-head builder clips them.
+_MIN_POSITIVE_TARGET = 1e-12
+
+
+def build_multihead_samples(
+    trajectories: list[list[dict[str, Any]]],
+    encoder: StateEncoder | ProblemAwareEncoder,
+    window: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Turn trajectories into weighted multi-head supervised samples.
+
+    Phase-1.5 variant of :func:`build_supervised_samples` targeting the full
+    action triple. The input alignment, the sample weights, and the
+    trajectory ids are identical to :func:`build_supervised_samples`: for
+    each trajectory ``j`` and transition index ``t`` in ``1..len-1`` the
+    input is ``encoder.transform`` of the merged dicts of transitions
+    ``[t - window, t)`` and the weight is ``max(r_t - mean_r_j, 0) + 1e-6``
+    with ``r_t = delta_hv_t + delta_igd_t``.
+
+    Targets per sample:
+
+    * ``y_op``: operator class index — ``0`` for ``"polynomial"``, ``1``
+      for ``"gaussian"`` (see :data:`OPERATOR_TO_INDEX`).
+    * ``y_logpm``: ``log`` of the mutation probability, clipped from below
+      at ``1e-12`` so non-positive records stay finite.
+    * ``y_logexpl``: ``log`` of the exploration strength, clipped the same
+      way. **Imputation:** for legacy Phase-0/1 trajectories whose action
+      dicts lack ``"exploration_strength"``, the operator's config default
+      is imputed (``eta_m = 20.0`` polynomial, ``sigma = 0.1`` Gaussian;
+      see :data:`OPERATOR_DEFAULT_EXPLORATION`) — the value the algorithm
+      actually used, so legacy data introduces no label bias.
+
+    Args:
+        trajectories: Generation-sorted trajectories, e.g. from
+            :func:`load_trajectories`.
+        encoder: Fitted encoder; ``X`` rows have ``encoder.dim`` columns
+            (``window * 6`` for :class:`StateEncoder`, ``window * 6 + 9``
+            for :class:`ProblemAwareEncoder`).
+        window: History window in generations; should match
+            ``encoder.window``.
+
+    Returns:
+        Tuple ``(X, y_op, y_logpm, y_logexpl, w, traj_ids)``: ``X`` of
+        shape ``(n, encoder.dim)``, integer ``y_op`` and float
+        ``y_logpm``/``y_logexpl``/``w`` of shape ``(n,)``, and integer
+        ``traj_ids`` of shape ``(n,)``. Empty arrays (with correct shapes)
+        if no trajectory has at least two transitions.
+
+    Raises:
+        ValueError: If ``window`` < 1 or an action's ``mutation_operator``
+            is not one of ``"polynomial"``/``"gaussian"``.
+        KeyError: If an action dict lacks ``"mutation_operator"`` or
+            ``"mutation_probability"`` (both are guaranteed by the
+            recorder schema).
+    """
+    if int(window) < 1:
+        raise ValueError(f"window must be >= 1, got {window}")
+    x_rows: list[np.ndarray] = []
+    y_op_vals: list[int] = []
+    y_logpm_vals: list[float] = []
+    y_logexpl_vals: list[float] = []
+    w_vals: list[float] = []
+    id_vals: list[int] = []
+    for j, trajectory in enumerate(trajectories):
+        if len(trajectory) < 2:
+            continue
+        merged = [merge_state_reward(t) for t in trajectory]
+        rewards = np.asarray(
+            [m["delta_hv"] + m["delta_igd"] for m in merged], dtype=float
+        )
+        mean_reward = float(rewards.mean())
+        for t in range(1, len(trajectory)):
+            history = merged[max(0, t - int(window)) : t]
+            action = trajectory[t]["action"]
+            operator = str(action["mutation_operator"])
+            if operator not in OPERATOR_TO_INDEX:
+                raise ValueError(
+                    f"unsupported mutation_operator {operator!r} at trajectory {j}, "
+                    f"transition {t}; expected one of {sorted(OPERATOR_TO_INDEX)}"
+                )
+            pm = float(action["mutation_probability"])
+            # Imputation for legacy 2-key actions (see module constants).
+            if "exploration_strength" in action:
+                exploration = float(action["exploration_strength"])
+            else:
+                exploration = OPERATOR_DEFAULT_EXPLORATION[operator]
+            x_rows.append(encoder.transform(history))
+            y_op_vals.append(OPERATOR_TO_INDEX[operator])
+            y_logpm_vals.append(math.log(max(pm, _MIN_POSITIVE_TARGET)))
+            y_logexpl_vals.append(math.log(max(exploration, _MIN_POSITIVE_TARGET)))
+            w_vals.append(max(float(rewards[t]) - mean_reward, 0.0) + 1e-6)
+            id_vals.append(j)
+    if not x_rows:
+        return (
+            np.zeros((0, encoder.dim)),
+            np.zeros(0, dtype=int),
+            np.zeros(0),
+            np.zeros(0),
+            np.zeros(0),
+            np.zeros(0, dtype=int),
+        )
+    return (
+        np.vstack(x_rows),
+        np.asarray(y_op_vals, dtype=int),
+        np.asarray(y_logpm_vals, dtype=float),
+        np.asarray(y_logexpl_vals, dtype=float),
         np.asarray(w_vals, dtype=float),
         np.asarray(id_vals, dtype=int),
     )
