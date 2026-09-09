@@ -20,7 +20,9 @@ Conventions (required by the EvoController trajectory contract):
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -265,6 +267,26 @@ class NSGAII:
             raise RuntimeError("population does not exist yet; call initialize() first")
         return self._population_f.copy()
 
+    @property
+    def rng(self) -> np.random.Generator:
+        """The instance random generator behind every stochastic draw.
+
+        Exposed so counterfactual branch evaluation (Phase 1.75) can reseed
+        individual branch steps between ``snapshot_state()`` /
+        ``restore_state()`` calls. Replacing the generator mid-generation
+        would break bit-identical replay; swap it only while the instance
+        sits at a snapshot boundary.
+        """
+        return self._rng
+
+    @rng.setter
+    def rng(self, generator: np.random.Generator) -> None:
+        if not isinstance(generator, np.random.Generator):
+            raise TypeError(
+                f"rng must be a numpy.random.Generator, got {type(generator).__name__}"
+            )
+        self._rng = generator
+
     def initialize(self) -> None:
         """Sample the initial population uniformly in the bounds and evaluate it.
 
@@ -401,6 +423,146 @@ class NSGAII:
             "mutation_probability": float(pm),
             "exploration_strength": float(strength),
         }
+
+    def snapshot_state(self) -> dict[str, Any]:
+        """Capture the complete state needed to replay future generations.
+
+        The snapshot is a plain dict of deep copies (safe to pickle and to
+        reuse across any number of :meth:`restore_state` calls) holding the
+        population decision variables and objective values, the derived
+        rank/crowding state, the generation counter, the action values of
+        the most recent step (so ``current_action()`` is restored
+        faithfully), the full bit-generator state of the instance RNG, and
+        the resolved operator configuration actually in force (default
+        mutation probability, operator, exploration strengths, crossover).
+        Restoring the snapshot and re-executing the same ``step()`` call
+        reproduces the next generation bit-identically.
+
+        Returns:
+            Dict with keys ``generation``, ``population_x``,
+            ``population_f``, ``ranks``, ``crowding``,
+            ``last_mutation_prob``, ``last_mutation_operator``,
+            ``last_exploration_strength``, ``rng_state``, and ``config``
+            (resolved operator settings plus ``pop_size``/``n_vars``, used
+            by :meth:`restore_state` for compatibility checks).
+
+        Raises:
+            RuntimeError: If called before initialize() (there is no
+                population state to replay).
+        """
+        if self._population_x is None or self._population_f is None:
+            raise RuntimeError("no state to snapshot; call initialize() first")
+        return {
+            "generation": int(self._generation),
+            "population_x": self._population_x.copy(),
+            "population_f": self._population_f.copy(),
+            "ranks": None if self._ranks is None else self._ranks.copy(),
+            "crowding": None if self._crowding is None else self._crowding.copy(),
+            "last_mutation_prob": self._last_mutation_prob,
+            "last_mutation_operator": self._last_mutation_operator,
+            "last_exploration_strength": self._last_exploration_strength,
+            "rng_state": copy.deepcopy(self._rng.bit_generator.state),
+            "config": {
+                "pop_size": int(self._pop_size),
+                "n_vars": int(self._problem.n_vars),
+                "mutation_prob": float(self._mutation_prob),
+                "mutation_operator": str(self._operators.mutation_operator),
+                "eta_m": float(self._operators.eta_m),
+                "gaussian_sigma": float(self._operators.gaussian_sigma),
+                "eta_c": float(self._operators.eta_c),
+                "crossover_prob": float(self._operators.crossover_prob),
+                "crossover_operator": str(self._operators.crossover_operator),
+            },
+        }
+
+    def restore_state(self, snapshot: dict[str, Any]) -> None:
+        """Restore a state previously captured with :meth:`snapshot_state`.
+
+        Every component is deep-copied back, so later mutation of the
+        passed snapshot cannot corrupt this instance, and the snapshot
+        itself is never mutated — one snapshot supports any number of
+        restores (counterfactual branch evaluation, Phase 1.75). The
+        instance is fully usable afterwards (``step()``,
+        ``current_action()``, ...); re-executing the same ``step()`` call
+        as after the original snapshot reproduces the next generation
+        bit-identically.
+
+        Args:
+            snapshot: Dict produced by :meth:`snapshot_state` (possibly
+                pickled and reloaded).
+
+        Raises:
+            ValueError: If the snapshot is incompatible with this instance:
+                missing ``config`` block, different ``pop_size``/``n_vars``,
+                different resolved operator configuration, malformed
+                population arrays, or a bit-generator state of a different
+                generator kind.
+        """
+        config = snapshot.get("config")
+        if not isinstance(config, dict):
+            raise ValueError("snapshot is missing its 'config' block")
+        if int(config["pop_size"]) != self._pop_size:
+            raise ValueError(
+                f"snapshot pop_size {config['pop_size']} does not match "
+                f"this instance's {self._pop_size}"
+            )
+        if int(config["n_vars"]) != self._problem.n_vars:
+            raise ValueError(
+                f"snapshot n_vars {config['n_vars']} does not match "
+                f"this problem's {self._problem.n_vars}"
+            )
+        resolved: dict[str, Any] = {
+            "mutation_prob": float(self._mutation_prob),
+            "mutation_operator": str(self._operators.mutation_operator),
+            "eta_m": float(self._operators.eta_m),
+            "gaussian_sigma": float(self._operators.gaussian_sigma),
+            "eta_c": float(self._operators.eta_c),
+            "crossover_prob": float(self._operators.crossover_prob),
+            "crossover_operator": str(self._operators.crossover_operator),
+        }
+        mismatched = [k for k, v in resolved.items() if config.get(k) != v]
+        if mismatched:
+            raise ValueError(
+                f"snapshot operator config does not match this instance; "
+                f"mismatched keys: {mismatched}"
+            )
+        population_x = snapshot.get("population_x")
+        population_f = snapshot.get("population_f")
+        if population_x is None or population_f is None:
+            raise ValueError("snapshot carries no population (taken before initialize())")
+        x = np.array(population_x, dtype=np.float64)
+        f = np.array(population_f, dtype=np.float64)
+        if x.shape != (self._pop_size, self._problem.n_vars):
+            raise ValueError(
+                f"snapshot population_x shape {x.shape} does not match "
+                f"({self._pop_size}, {self._problem.n_vars})"
+            )
+        if f.shape != (self._pop_size, self._problem.n_objs):
+            raise ValueError(
+                f"snapshot population_f shape {f.shape} does not match "
+                f"({self._pop_size}, {self._problem.n_objs})"
+            )
+        ranks = snapshot.get("ranks")
+        crowding = snapshot.get("crowding")
+        if ranks is None or crowding is None:
+            raise ValueError("snapshot is missing ranks/crowding state")
+        rng_state = copy.deepcopy(snapshot["rng_state"])
+        if rng_state.get("bit_generator") != type(self._rng.bit_generator).__name__:
+            raise ValueError(
+                f"snapshot RNG kind {rng_state.get('bit_generator')!r} does not match "
+                f"this instance's {type(self._rng.bit_generator).__name__!r}"
+            )
+        self._population_x = x
+        self._population_f = f
+        self._ranks = np.array(ranks, dtype=np.int64)
+        self._crowding = np.array(crowding, dtype=np.float64)
+        self._generation = int(snapshot["generation"])
+        last_pm = snapshot.get("last_mutation_prob")
+        self._last_mutation_prob = None if last_pm is None else float(last_pm)
+        self._last_mutation_operator = snapshot.get("last_mutation_operator")
+        last_expl = snapshot.get("last_exploration_strength")
+        self._last_exploration_strength = None if last_expl is None else float(last_expl)
+        self._rng.bit_generator.state = rng_state
 
     def _default_exploration_strength(self, mutation_operator: str) -> float:
         """Config-level exploration strength of an operator (eta_m or sigma)."""
