@@ -13,6 +13,7 @@
 | Phase 0 | Evolution Dataset Generation (NSGA-II + benchmarks + trajectory recorder) | ✅ 已完成 (2026-09-08) |
 | Phase 1 | Learned Evolution Controller (MLP baseline) | ✅ 已完成 (2026-09-08) |
 | Phase 1.5 | Evolution Decision Understanding（action 动态分析 + 扩展 action 空间 + problem 特征） | ✅ 已完成 (2026-09-09) |
+| Phase 1.75 | Decision Causality & Fair Baselines（matched full-action + open-loop + counterfactual + 20 seeds） | 🟡 当前执行 |
 | Phase 2 | Trajectory-aware Controller (Transformer / Mamba / SSM) | 未开始 |
 | Phase 3 | Advanced Controller (memory, credit assignment, transfer) | 未开始 |
 | Phase 4 | Application (NeuroEvoScientist) | 未开始 |
@@ -109,4 +110,6 @@ python experiments/run_phase1_5.py        # 训练 mlp2 / mlp2_nopf 并评估，
 python experiments/analyze_actions.py     # action 动态分析（Phase 1 轨迹）
 ```
 
-**Phase 1.5 结论摘要**：核心问题"controller 学到的是状态依赖决策还是全局最优常数"——答案是**前者**。mlp2_nopf 在全部 5 个问题上显著优于 fixed（p=0.031，5/5 全胜），在 4/5 问题上显著优于 constant 基线（p=0.031），zdt4 的 Phase 1 失败被修复（HV 0.52 vs fixed 0.26）。action 动态分析证实 pm 随收敛状态自适应变化（退火式策略），且行为跨问题显著不同（p=1.96e-291）。problem-aware 显式特征未带来额外收益（state 特征已隐式编码问题身份）。完整分析见 [docs/PHASE1_5_RESULTS.md](docs/PHASE1_5_RESULTS.md)。
+**Phase 1.5 结论摘要**：核心问题“controller 学到的是状态依赖决策还是全局最优常数”——已有正向证据：mlp2_nopf 在全部 5 个问题上优于 fixed，在 4/5 问题上优于旧 constant-pm 基线；action 动态分析也显示状态相关变化。完整分析见 [docs/PHASE1_5_RESULTS.md](docs/PHASE1_5_RESULTS.md)。
+
+**Planner Gate — Phase 1.75**：在进入 Mamba/Transformer 前，必须进一步排除三个混淆：旧 constant baseline 与 controller 的 action 空间不匹配、5 个 held-out seeds 统计功效不足、动态行为可能被 generation-only 退火 schedule 解释。执行 [docs/PHASE1_75_PLAN.md](docs/PHASE1_75_PLAN.md)，通过 matched full-action baseline、open-loop baseline、500 条训练轨迹、20 held-out seeds 和 counterfactual branch evaluation 验证 closed-loop state feedback 的因果价值。Phase 1.75 未通过 gate 前不得进入 Phase 2。
