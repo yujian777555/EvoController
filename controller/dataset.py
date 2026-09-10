@@ -453,3 +453,137 @@ def train_val_split(
         "w_val": w[val_mask],
         "traj_ids_val": traj_ids[val_mask],
     }
+
+
+#: Decision-variable count assumed when a legacy action dict lacks
+#: ``"mutation_multiplier"``: raw transitions store no problem metadata,
+#: so ``n_vars`` cannot be recovered from a transition and the fallback
+#: multiplier is ``mutation_probability * OUTCOME_FALLBACK_N_VARS``. The
+#: value 30 matches the problems the legacy Phase-0/1 datasets were
+#: generated on (ZDT1-3 style, ``n_vars = 30``).
+OUTCOME_FALLBACK_N_VARS: int = 30
+
+
+def build_outcome_samples(
+    trajectories: list[list[dict[str, Any]]],
+    encoder: StateEncoder | ProblemAwareEncoder,
+    window: int,
+    horizons: list[int] = [1, 5, 10, 20],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Build ``(history, action) -> future HV`` regression samples.
+
+    Phase-2 outcome-prediction dataset builder. Unlike
+    :func:`build_supervised_samples` (which imitates recorded actions),
+    each sample asks: given the encoded state history up to and including
+    generation ``t`` concatenated with the candidate action taken at
+    ``t``, what will the absolute hypervolume be at generation ``t + h``
+    for each horizon ``h``?
+
+    For each trajectory ``j`` and each transition index ``t`` with
+    ``t + max(horizons) < len(trajectory)``:
+
+    * input: ``encoder.transform`` of the merged dicts of transitions
+      ``[t - window + 1, t]`` — inclusive of ``t``, because in this
+      formulation the action of generation ``t`` is scored against the
+      state observed at ``t`` — concatenated with four raw action
+      features ``[mutation_multiplier, exploration_strength,
+      onehot_polynomial, onehot_gaussian]``;
+    * target: ``[trajectory[t + h]["state"]["hv"] for h in horizons]``
+      (absolute future HV, no differencing);
+    * bookkeeping: ``traj_ids[i] = j`` and ``sample_indices[i] = t``.
+
+    Action-feature fallbacks for legacy trajectories:
+
+    * ``mutation_multiplier``: if the action dict lacks the key, the
+      multiplier is reconstructed as ``mutation_probability *
+      OUTCOME_FALLBACK_N_VARS`` because ``n_vars`` cannot be recovered
+      from a raw transition (the recorder stores no problem metadata
+      inside ``transitions``); the constant is the ``n_vars`` of the
+      problems the legacy datasets were generated on.
+    * ``exploration_strength``: imputed from
+      :data:`OPERATOR_DEFAULT_EXPLORATION` exactly as in
+      :func:`build_multihead_samples`, so legacy data introduces no
+      feature bias.
+
+    Args:
+        trajectories: Generation-sorted trajectories, e.g. from
+            :func:`load_trajectories`.
+        encoder: Fitted encoder; ``X`` rows have ``encoder.dim + 4``
+            columns.
+        window: History window in generations; should match
+            ``encoder.window``.
+        horizons: Future generation offsets at which HV is predicted.
+
+    Returns:
+        Tuple ``(X, y, traj_ids, sample_indices)``: ``X`` of shape
+        ``(n, encoder.dim + 4)`` and ``y`` of shape
+        ``(n, len(horizons))``; all four arrays are float64 (``j`` and
+        ``t`` are exactly representable in float64). Empty arrays with
+        correct shapes when no trajectory is long enough for
+        ``max(horizons)``.
+
+    Raises:
+        ValueError: If ``window`` < 1, ``horizons`` is empty or contains
+            a value < 1, or an action's ``mutation_operator`` is not one
+            of ``"polynomial"``/``"gaussian"``.
+    """
+    if int(window) < 1:
+        raise ValueError(f"window must be >= 1, got {window}")
+    horizons = [int(h) for h in horizons]
+    if not horizons:
+        raise ValueError("horizons must be a non-empty list of generation offsets")
+    if min(horizons) < 1:
+        raise ValueError(f"every horizon must be >= 1, got {horizons}")
+    max_horizon = max(horizons)
+    x_rows: list[np.ndarray] = []
+    y_rows: list[list[float]] = []
+    id_vals: list[float] = []
+    idx_vals: list[float] = []
+    for j, trajectory in enumerate(trajectories):
+        # t + max_horizon must index an existing transition.
+        for t in range(len(trajectory) - max_horizon):
+            history = [
+                merge_state_reward(trajectory[i])
+                for i in range(max(0, t - int(window) + 1), t + 1)
+            ]
+            action = trajectory[t]["action"]
+            operator = str(action["mutation_operator"])
+            if operator not in OPERATOR_TO_INDEX:
+                raise ValueError(
+                    f"unsupported mutation_operator {operator!r} at trajectory {j}, "
+                    f"transition {t}; expected one of {sorted(OPERATOR_TO_INDEX)}"
+                )
+            if "mutation_multiplier" in action:
+                multiplier = float(action["mutation_multiplier"])
+            else:
+                multiplier = float(action["mutation_probability"]) * OUTCOME_FALLBACK_N_VARS
+            if "exploration_strength" in action:
+                exploration = float(action["exploration_strength"])
+            else:
+                exploration = OPERATOR_DEFAULT_EXPLORATION[operator]
+            onehot = [0.0, 0.0]
+            onehot[OPERATOR_TO_INDEX[operator]] = 1.0
+            action_features = np.asarray(
+                [multiplier, exploration, *onehot], dtype=np.float64
+            )
+            x_rows.append(
+                np.concatenate([encoder.transform(history), action_features])
+            )
+            y_rows.append(
+                [float(trajectory[t + h]["state"]["hv"]) for h in horizons]
+            )
+            id_vals.append(float(j))
+            idx_vals.append(float(t))
+    if not x_rows:
+        return (
+            np.zeros((0, encoder.dim + 4)),
+            np.zeros((0, len(horizons))),
+            np.zeros(0),
+            np.zeros(0),
+        )
+    return (
+        np.vstack(x_rows),
+        np.asarray(y_rows, dtype=np.float64),
+        np.asarray(id_vals, dtype=np.float64),
+        np.asarray(idx_vals, dtype=np.float64),
+    )

@@ -14,7 +14,8 @@
 | Phase 1 | Learned Evolution Controller (MLP baseline) | ✅ 已完成 (2026-09-08) |
 | Phase 1.5 | Evolution Decision Understanding（action 动态分析 + 扩展 action 空间 + problem 特征） | ✅ 已完成 (2026-09-09) |
 | Phase 1.75 | Decision Causality & Fair Baselines（matched full-action + open-loop + counterfactual + 20 seeds） | ❌ 已完成 (2026-09-10)，**Phase-2 gate 未通过** |
-| Phase 2 | Trajectory-aware Controller (Transformer / Mamba / SSM) | ⏸ **暂停**（Phase 1.75 因果证据不足） |
+| Phase 2 Redesign | Outcome Predictor（(state, action) → future HV 预测，替代模仿学习） | ✅ Experiment A 完成 (2026-09-10)，R² > 0.97 |
+| Phase 2 | Trajectory-aware Controller (Transformer / Mamba / SSM) | ⏸ **暂停**（等待 Experiment B 验证） |
 | Phase 3 | Advanced Controller (memory, credit assignment, transfer) | 未开始 |
 | Phase 4 | Application (NeuroEvoScientist) | 未开始 |
 

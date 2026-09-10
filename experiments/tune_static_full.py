@@ -63,11 +63,30 @@ if __package__ in (None, ""):
 
 from algorithms import NSGAII, OperatorConfig
 from benchmarks import get_problem
-from controller.multihead_controller import (
-    GAUSSIAN_EXPLORATION_RANGE,
-    POLYNOMIAL_EXPLORATION_RANGE,
+
+# Mirror of controller.multihead_controller.POLYNOMIAL_EXPLORATION_RANGE /
+# GAUSSIAN_EXPLORATION_RANGE (single source of truth lives there). Duplicated
+# here intentionally: importing the controller module would pull in torch,
+# which roughly doubles this tuner's per-process memory footprint and
+# exhausted the Windows page file under sharded execution.
+POLYNOMIAL_EXPLORATION_RANGE: tuple[float, float] = (2.0, 50.0)
+GAUSSIAN_EXPLORATION_RANGE: tuple[float, float] = (0.02, 0.3)
+# Load ``static_full_controller`` directly from its file path, bypassing
+# ``controller/__init__.py``: the package root eagerly imports
+# ``mlp_controller``, which pulls in torch (~1 GB commit charge per
+# process). Under sharded parallel execution that memory pressure
+# exhausted the Windows page file. The module itself is pure stdlib.
+import importlib.util as _importlib_util
+
+_STATIC_FULL_PATH = Path(__file__).resolve().parents[1] / "controller" / "static_full_controller.py"
+_static_full_spec = _importlib_util.spec_from_file_location(
+    "static_full_controller", _STATIC_FULL_PATH
 )
-from controller.static_full_controller import SUPPORTED_OPERATORS, StaticFullController
+_static_full_module = _importlib_util.module_from_spec(_static_full_spec)
+_static_full_spec.loader.exec_module(_static_full_module)
+
+SUPPORTED_OPERATORS = _static_full_module.SUPPORTED_OPERATORS
+StaticFullController = _static_full_module.StaticFullController
 from metrics import hypervolume
 
 #: Default tuning problem grid (all Phase-0 ZDT benchmarks).

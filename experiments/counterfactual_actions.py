@@ -443,7 +443,7 @@ def evaluate_snapshot(
     pm_min = float(pm_mult_range[0]) / n_vars
     pm_max = float(pm_mult_range[1]) / n_vars
     controller_action = controller.predict_action(
-        list(payload["history"]), encoder, pm_min, pm_max
+        list(payload["history"]), encoder, pm_min, pm_max, n_vars=n_vars
     )
     hash_seed = _snapshot_hash_seed(
         str(payload["problem"]), int(payload["seed"]), int(payload["generation"])
