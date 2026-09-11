@@ -15,6 +15,7 @@
 | Phase 1.5 | Evolution Decision Understanding（action 动态分析 + 扩展 action 空间 + problem 特征） | ✅ 已完成 (2026-09-09) |
 | Phase 1.75 | Decision Causality & Fair Baselines（matched full-action + open-loop + counterfactual + 20 seeds） | ❌ 已完成 (2026-09-10)，**Phase-2 gate 未通过** |
 | Phase 2 Redesign | Outcome Predictor（(state, action) → future HV 预测，替代模仿学习） | ✅ Experiment A 完成 (2026-09-10)，R² > 0.97 |
+| Phase 2B | Search Policy Optimization（PlanningController：候选动作采样 + outcome 预测选优） | 🚧 核心实现完成 (2026-09-11)，实验待运行 |
 | Phase 2 | Trajectory-aware Controller (Transformer / Mamba / SSM) | ⏸ **暂停**（等待 Experiment B 验证） |
 | Phase 3 | Advanced Controller (memory, credit assignment, transfer) | 未开始 |
 | Phase 4 | Application (NeuroEvoScientist) | 未开始 |
@@ -28,10 +29,13 @@ EvoController/
 ├── metrics/             # hypervolume / igd / diversity_spread 质量指标
 ├── trajectory/          # EvolutionRecorder：记录 (state, action, reward)
 ├── controller/          # StateEncoder / ProblemAwareEncoder / MLPController / MultiHeadController / ConstantController
+│                        # OutcomePredictor（(state, action) → future HV）/ PlanningController（Phase 2B 候选规划）
 ├── experiments/         # generate_dataset.py（fixed/random × pm/full action 空间）
 │                        # run_phase1.py（MLP 基线）、run_phase1_5.py（controller v2）、analyze_actions.py（action 动态分析）
+│                        # train/evaluate_outcome_predictor.py（Phase 2A）、counterfactual_actions.py（反事实快照评估，支持 planning controller）
+│                        # run_phase2b.py（Phase 2B 闭环配对评估 + 与 Phase-1.75 全部 arms 的统计对比）
 ├── docs/                # Phase 计划与实验记录
-├── tests/               # pytest 测试套件（246 项）
+├── tests/               # pytest 测试套件（395 项）
 └── results/             # 实验输出（git 忽略）
     ├── trajectory/          # Phase 0 固定策略轨迹
     ├── trajectory_random/   # Phase 1 随机策略轨迹（仅 pm）
@@ -114,3 +118,20 @@ python experiments/analyze_actions.py     # action 动态分析（Phase 1 轨迹
 **Phase 1.5 结论摘要**：核心问题“controller 学到的是状态依赖决策还是全局最优常数”——已有正向证据：mlp2_nopf 在全部 5 个问题上优于 fixed，在 4/5 问题上优于旧 constant-pm 基线；action 动态分析也显示状态相关变化。完整分析见 [docs/PHASE1_5_RESULTS.md](docs/PHASE1_5_RESULTS.md)。
 
 **Planner Gate — Phase 1.75**：在进入 Mamba/Transformer 前，必须进一步排除三个混淆：旧 constant baseline 与 controller 的 action 空间不匹配、5 个 held-out seeds 统计功效不足、动态行为可能被 generation-only 退火 schedule 解释。执行 [docs/PHASE1_75_PLAN.md](docs/PHASE1_75_PLAN.md)，通过 matched full-action baseline、open-loop baseline、500 条训练轨迹、20 held-out seeds 和 counterfactual branch evaluation 验证 closed-loop state feedback 的因果价值。Phase 1.75 未通过 gate 前不得进入 Phase 2。
+
+**Phase 2 重设计（Experiment A）**：模仿学习被证明无因果决策信号后，学习目标转向 outcome——`OutcomePredictor` 从 (encoded state history, candidate action) 回归未来 4 个 horizon 的绝对 HV，held-out R² > 0.97（显著优于 persistence / linear-trend 基线），证明 learned outcome model 是 planning controller 的可行前提。训练与评估细节见 [docs/PHASE2_OUTCOME_PREDICTOR.md](docs/PHASE2_OUTCOME_PREDICTOR.md)。
+
+**Phase 2B（Experiment B）**：`PlanningController`（[controller/planning_controller.py](controller/planning_controller.py)）把 outcome predictor 变成决策规则——每代从 Phase-1.5 全 action 空间采样 `n_candidates` 个候选动作（复用 `sample_full_action`，与训练分布一致），逐候选预测未来 HV 向量，按 horizon 加权和（默认偏向长 horizon）取 argmax 执行。预测输入布局与训练样本 `build_outcome_samples` 逐位一致。反事实评估（B2）通过 `--controller-type planning` 接入既有 snapshot 框架：
+
+```bash
+python experiments/counterfactual_actions.py evaluate --problem zdt1 \
+  --controller <planner.json> --controller-type planning \
+  --predictor results/phase2_outcome/predictor.pt \
+  --encoder results/phase2_outcome/encoder.json
+```
+
+计划见 [docs/PHASE2_EXPERIMENT_B_PLAN.md](docs/PHASE2_EXPERIMENT_B_PLAN.md)。B1 闭环配对评估（与 Phase-1.75 相同的 held-out 问题 × seed 网格、相同的部署协议，配对 Wilcoxon 对比全部 Phase-1.75 arms）：
+
+```bash
+python experiments/run_phase2b.py --stage all   # eval -> aggregate，输出 results/phase2b/{results,comparison}.json
+```

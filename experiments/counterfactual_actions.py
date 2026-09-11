@@ -24,7 +24,15 @@ Subcommands (argparse subparsers):
   restore each snapshot, compute the state metrics, branch every candidate
   action with per-replicate RNG reseeding, and write
   ``{out_dir}/counterfactual_{problem}.json`` with per-state records and a
-  summary (``mean_percentile_rank``, ``n_states``).
+  summary (``mean_percentile_rank``, ``n_states``). The index-0 candidate
+  comes from the controller selected by ``--controller-type``:
+  ``multihead`` (default; ``--controller`` is a MultiHeadController
+  checkpoint) or ``planning`` (Phase 2B; ``--controller`` is a
+  PlanningController saved config JSON and ``--predictor`` an
+  OutcomePredictor checkpoint). Both expose the same
+  ``predict_action(history, encoder, pm_min, pm_max, n_vars)`` contract,
+  so snapshot restore, branching, replicate RNG, and percentile ranking
+  are shared unchanged.
 * ``aggregate`` — merge the per-problem files into
   ``{results_dir}/counterfactual.json`` with the overall mean percentile
   rank, a deterministic bootstrap 95% CI (PCG64 seed 0, 10000 resamples),
@@ -65,7 +73,7 @@ import pickle
 import sys
 import zlib
 from pathlib import Path
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 import numpy as np
 
@@ -79,10 +87,14 @@ from benchmarks import get_problem
 from benchmarks.base import Problem
 from controller.dataset import merge_state_reward
 from controller.multihead_controller import MultiHeadController
+from controller.outcome_predictor import OutcomePredictor
 from controller.state_encoder import ProblemAwareEncoder, StateEncoder
 from experiments.generate_dataset import sample_full_action
 from metrics.indicators import hypervolume, igd
 from trajectory.recorder import EvolutionRecorder
+
+if TYPE_CHECKING:
+    from controller.planning_controller import PlanningController
 
 #: Default evaluation problem grid (all Phase-0 ZDT benchmarks).
 DEFAULT_PROBLEMS: tuple[str, ...] = ("zdt1", "zdt2", "zdt3", "zdt4", "zdt6")
@@ -330,6 +342,56 @@ def _load_encoder(path: str | Path) -> StateEncoder | ProblemAwareEncoder:
     return StateEncoder.load(path)
 
 
+def _load_planning_controller(
+    predictor: OutcomePredictor,
+    path: str | Path,
+    pm_mult_range: tuple[float, float],
+) -> PlanningController:
+    """Bind a PlanningController config JSON to ``predictor``.
+
+    The Phase-2B planning controller holds no torch weights of its own
+    (they live in the predictor checkpoint), so ``--controller`` points to
+    a saved config JSON carrying the constructor settings. Keys are read
+    from the nested ``"config"`` object when present (the codebase
+    ``save`` convention) else from the top level; a missing
+    ``pm_mult_range`` falls back to the CLI ``--pm-mult-range`` value.
+
+    The import is deferred so the default ``multihead`` path also works in
+    checkouts where ``controller/planning_controller.py`` is absent.
+
+    Args:
+        predictor: Outcome predictor used to score candidate actions.
+        path: PlanningController saved config JSON.
+        pm_mult_range: Fallback multiplier bounds ``(lo, hi)`` used when
+            the config JSON carries no ``pm_mult_range``.
+
+    Returns:
+        The constructed PlanningController.
+
+    Raises:
+        TypeError: If required constructor settings (``n_candidates``,
+            ``candidate_seed``, ``horizon_weights``) are absent from the
+            config JSON and the constructor provides no defaults.
+    """
+    from controller.planning_controller import PlanningController
+
+    with Path(path).open("r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    config = payload.get("config", payload) if isinstance(payload, dict) else {}
+    kwargs: dict[str, Any] = {}
+    if "n_candidates" in config:
+        kwargs["n_candidates"] = int(config["n_candidates"])
+    if "candidate_seed" in config:
+        kwargs["candidate_seed"] = int(config["candidate_seed"])
+    if "horizon_weights" in config:
+        kwargs["horizon_weights"] = [float(w) for w in config["horizon_weights"]]
+    if "pm_mult_range" in config:
+        kwargs["pm_mult_range"] = tuple(float(v) for v in config["pm_mult_range"])
+    else:
+        kwargs["pm_mult_range"] = (float(pm_mult_range[0]), float(pm_mult_range[1]))
+    return PlanningController(predictor, **kwargs)
+
+
 def percentile_rank_of_first(values: Sequence[float] | np.ndarray) -> float:
     """Midrank percentile of ``values[0]`` among all values, in ``[0, 1]``.
 
@@ -365,7 +427,7 @@ def evaluate_snapshot(
     problem: Problem,
     reference_front: np.ndarray,
     ref_point: np.ndarray,
-    controller: MultiHeadController,
+    controller: MultiHeadController | PlanningController,
     encoder: StateEncoder | ProblemAwareEncoder,
     n_alternatives: int,
     n_reps: int,
@@ -376,8 +438,10 @@ def evaluate_snapshot(
     Restores the snapshot into a fresh NSGA-II instance, recomputes the
     state metrics (hypervolume/IGD of the current nondominated front) and
     verifies them against the harvested values, then branches every
-    candidate action — index 0 is the controller's
-    :meth:`MultiHeadController.predict_action` on the stored history,
+    candidate action — index 0 is the controller's ``predict_action`` on
+    the stored history (the :class:`MultiHeadController` and Phase-2B
+    ``PlanningController`` contracts are identical:
+    ``predict_action(history, encoder, pm_min, pm_max, n_vars) -> dict``),
     indices 1..n_alternatives are sampled from the full action space via
     ``Generator(PCG64([snapshot_hash_seed, k]))``. Each candidate is
     stepped ``n_reps`` times; before every branch step the snapshot is
@@ -396,7 +460,9 @@ def evaluate_snapshot(
         reference_front: True Pareto front samples for IGD, shape
             ``(n, 2)``.
         ref_point: Hypervolume reference point, shape ``(2,)``.
-        controller: Fitted multi-head controller.
+        controller: Fitted controller used for the index-0 candidate; a
+            :class:`MultiHeadController` or a Phase-2B
+            ``PlanningController`` — only ``predict_action`` is used.
         encoder: Fitted encoder matching the controller's input.
         n_alternatives: Number of alternative actions (>= 1).
         n_reps: Replicate RNG draws per candidate (>= 1).
@@ -552,32 +618,61 @@ def _select_snapshot_files(snapshots_dir: Path, problem: str, max_states: int) -
 def run_evaluate(args: argparse.Namespace) -> dict[str, Any]:
     """Evaluate the controller action against alternatives at every state.
 
-    Loads the controller (``--controller``) and its fitted encoder
-    (``--encoder``), evaluates up to ``--max-states`` snapshots of
-    ``--problem``, and writes ``{out_dir}/counterfactual_{problem}.json``.
+    Loads the fitted encoder (``--encoder``) and the controller selected
+    by ``--controller-type`` — a MultiHeadController checkpoint
+    (``--controller``) for ``multihead``, or an OutcomePredictor
+    checkpoint (``--predictor``) bound to a PlanningController config JSON
+    (``--controller``) for ``planning`` — evaluates up to ``--max-states``
+    snapshots of ``--problem``, and writes
+    ``{out_dir}/counterfactual_{problem}.json``.
 
     Args:
         args: Parsed arguments of the ``evaluate`` subcommand.
 
     Returns:
         The payload exactly as written to the output JSON.
+
+    Raises:
+        ValueError: If ``--controller-type=planning`` is given without
+            ``--predictor``, or the encoder dimension does not match the
+            controller/predictor it was trained with.
     """
     problem = get_problem(args.problem)
-    controller = MultiHeadController.load(args.controller)
     encoder = _load_encoder(args.encoder)
-    if encoder.dim != controller.input_dim:
-        raise ValueError(
-            f"encoder dim {encoder.dim} does not match controller input_dim "
-            f"{controller.input_dim}; pass the encoder the controller was trained with"
+    pm_mult_range = (float(args.pm_mult_range[0]), float(args.pm_mult_range[1]))
+    controller: MultiHeadController | PlanningController
+    if str(args.controller_type) == "planning":
+        if args.predictor is None:
+            raise ValueError(
+                "--predictor is required when --controller-type=planning "
+                "(path to an OutcomePredictor saved with .save())"
+            )
+        predictor = OutcomePredictor.load(args.predictor)
+        expected_dim = int(encoder.dim) + 4
+        if predictor.input_dim != expected_dim:
+            raise ValueError(
+                f"predictor input_dim {predictor.input_dim} does not match "
+                f"encoder.dim + 4 = {expected_dim}; pass the encoder the "
+                f"predictor was trained with"
+            )
+        controller = _load_planning_controller(
+            predictor, args.controller, pm_mult_range
         )
+    else:
+        controller = MultiHeadController.load(args.controller)
+        if encoder.dim != controller.input_dim:
+            raise ValueError(
+                f"encoder dim {encoder.dim} does not match controller input_dim "
+                f"{controller.input_dim}; pass the encoder the controller was trained with"
+            )
     reference_front = problem.reference_front(n_points=args.n_reference_points)
     ref_point = np.asarray(args.ref_point, dtype=float)
-    pm_mult_range = (float(args.pm_mult_range[0]), float(args.pm_mult_range[1]))
     files = _select_snapshot_files(Path(args.snapshots_dir), problem.name, args.max_states)
 
     print(
         f"Phase-1.75 counterfactual evaluate: problem={problem.name}, "
-        f"{len(files)} states, alternatives={args.n_alternatives}, reps={args.n_reps}"
+        f"controller_type={args.controller_type}, {len(files)} states, "
+        f"alternatives={args.n_alternatives}, reps={args.n_reps}"
     )
     states: list[dict[str, Any]] = []
     run_generations: int | None = None
@@ -614,6 +709,8 @@ def run_evaluate(args: argparse.Namespace) -> dict[str, Any]:
         "problem": problem.name,
         "config": {
             "controller": str(args.controller),
+            "controller_type": str(args.controller_type),
+            "predictor": str(args.predictor) if args.predictor is not None else None,
             "encoder": str(args.encoder),
             "snapshots_dir": str(args.snapshots_dir),
             "n_alternatives": int(args.n_alternatives),
@@ -834,7 +931,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     evaluate.add_argument(
         "--controller", required=True,
-        help="Path to a MultiHeadController saved with .save().",
+        help="Controller artifact: a MultiHeadController saved with .save() "
+        "(--controller-type multihead) or a PlanningController saved config "
+        "JSON (--controller-type planning).",
+    )
+    evaluate.add_argument(
+        "--controller-type", choices=["multihead", "planning"], default="multihead",
+        help="Controller family of the index-0 candidate: 'multihead' "
+        "(Phase-1.75 imitative controller, default) or 'planning' (Phase-2B "
+        "candidate-action planner; requires --predictor).",
+    )
+    evaluate.add_argument(
+        "--predictor", type=str, default=None,
+        help="Path to an OutcomePredictor saved with .save(); required when "
+        "--controller-type=planning, ignored otherwise.",
     )
     evaluate.add_argument(
         "--encoder", required=True,

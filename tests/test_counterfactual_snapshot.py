@@ -13,11 +13,16 @@ Covers the Phase-1.75 Task-5 contract:
 * A tiny end-to-end counterfactual run (zdt1, 2 states, 4 alternatives,
   2 reps, pop 20, 8 generations) is deterministic across repeated
   invocations and yields percentile ranks in [0, 1].
+* Phase 2B: the same tiny run with ``--controller-type planning`` (a
+  PlanningController config JSON wrapping a synthetic-trained
+  OutcomePredictor) is deterministic, yields ranks in [0, 1], and rejects
+  a missing ``--predictor``.
 
 Runtime is dominated by the torch import; the NSGA-II runs are tiny
 (pop 20, <= 8 generations) and stay well under 60 s in total.
 """
 
+import json
 import pickle
 from pathlib import Path
 from typing import Any
@@ -27,7 +32,10 @@ import pytest
 
 from algorithms.nsga2 import NSGAII, OperatorConfig
 from benchmarks import get_problem
+from controller.dataset import build_outcome_samples
 from controller.multihead_controller import MultiHeadController
+from controller.outcome_predictor import OutcomePredictor
+from controller.planning_controller import PlanningController
 from controller.state_encoder import StateEncoder
 from experiments import counterfactual_actions as cfa
 
@@ -358,3 +366,163 @@ def test_aggregate_merges_and_bootstraps(tiny_counterfactual: dict[str, Any]) ->
     assert thirds["mid"]["mean_percentile_rank"] is None
     assert thirds["late"]["n_states"] == 1
     assert (root / "eval_a" / "counterfactual.json").exists()
+
+
+# --- Phase 2B: planning-controller counterfactual run ------------------------
+
+#: Horizons of the tiny outcome predictor; small so the 9-transition
+#: synthetic trajectories yield outcome samples (``t + max(h) < 9``).
+_TINY_PREDICTOR_HORIZONS = [1, 2]
+_TINY_N_CANDIDATES = 4
+
+
+@pytest.fixture(scope="module")
+def tiny_planning_counterfactual(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> dict[str, Any]:
+    """Tiny evaluator run with ``--controller-type planning``, twice.
+
+    Mirrors :func:`tiny_counterfactual` but the index-0 controller is a
+    :class:`PlanningController` config JSON bound to a synthetically
+    trained :class:`OutcomePredictor` checkpoint.
+    """
+    root = tmp_path_factory.mktemp("counterfactual_planning")
+    trajectories = _tiny_trajectories()
+    encoder = StateEncoder(_TINY_WINDOW).fit(trajectories)
+    encoder_path = root / "encoder.json"
+    encoder.save(encoder_path)
+
+    X, y, _, _ = build_outcome_samples(
+        trajectories, encoder, _TINY_WINDOW, _TINY_PREDICTOR_HORIZONS
+    )
+    assert X.shape[0] > 0
+    predictor = OutcomePredictor(
+        input_dim=X.shape[1],
+        horizons=_TINY_PREDICTOR_HORIZONS,
+        hidden_dims=(8, 8),
+        seed=0,
+    )
+    predictor.fit(X, y, epochs=3)
+    predictor_path = root / "predictor.pt"
+    predictor.save(predictor_path)
+    planner = PlanningController(
+        predictor,
+        n_candidates=_TINY_N_CANDIDATES,
+        candidate_seed=0,
+        horizon_weights=[0.5, 0.5],
+    )
+    planner.predictor_path = str(predictor_path)
+    planner_path = root / "planner.json"
+    planner.save(planner_path)
+
+    snapshots_dir = root / "snapshots"
+    cfa.harvest_snapshots(
+        "zdt1",
+        seed=1000,
+        generations=_TINY_GENS,
+        pop_size=_POP_SIZE,
+        states_per_run=_TINY_STATES,
+        n_reference_points=200,
+        ref_point=np.asarray([1.1, 1.1]),
+        out_dir=snapshots_dir,
+    )
+
+    def _evaluate(out_dir: Path) -> dict[str, Any]:
+        args = cfa.parse_args(
+            [
+                "evaluate",
+                "--problem", "zdt1",
+                "--snapshots-dir", str(snapshots_dir),
+                "--out-dir", str(out_dir),
+                "--controller", str(planner_path),
+                "--controller-type", "planning",
+                "--predictor", str(predictor_path),
+                "--encoder", str(encoder_path),
+                "--n-alternatives", str(_TINY_ALTERNATIVES),
+                "--n-reps", str(_TINY_REPS),
+            ]
+        )
+        return cfa.run_evaluate(args)
+
+    payload_a = _evaluate(root / "eval_a")
+    payload_b = _evaluate(root / "eval_b")
+    return {
+        "root": root,
+        "planner_path": planner_path,
+        "predictor_path": predictor_path,
+        "payload_a": payload_a,
+        "payload_b": payload_b,
+    }
+
+
+def test_planner_config_json_matches_loader_contract(
+    tiny_planning_counterfactual: dict[str, Any],
+) -> None:
+    """The saved planner JSON carries the keys ``_load_planning_controller`` reads."""
+    with tiny_planning_counterfactual["planner_path"].open("r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    assert payload["name"] == "planning_predictor"
+    assert payload["predictor_path"] == str(tiny_planning_counterfactual["predictor_path"])
+    config = payload["config"]
+    assert config["n_candidates"] == _TINY_N_CANDIDATES
+    assert config["candidate_seed"] == 0
+    assert config["horizon_weights"] == [0.5, 0.5]
+    assert len(config["pm_mult_range"]) == 2
+
+
+def test_planning_evaluator_is_deterministic(
+    tiny_planning_counterfactual: dict[str, Any],
+) -> None:
+    """Two identical planning invocations produce identical payloads and bytes."""
+    payload_a = tiny_planning_counterfactual["payload_a"]
+    payload_b = tiny_planning_counterfactual["payload_b"]
+    assert payload_a == payload_b
+    root = tiny_planning_counterfactual["root"]
+    bytes_a = (root / "eval_a" / "counterfactual_zdt1.json").read_bytes()
+    bytes_b = (root / "eval_b" / "counterfactual_zdt1.json").read_bytes()
+    assert bytes_a == bytes_b
+
+
+def test_planning_evaluator_records_schema_and_ranks(
+    tiny_planning_counterfactual: dict[str, Any],
+) -> None:
+    """Planning run: schema complete, ranks in [0, 1], config self-describing."""
+    payload = tiny_planning_counterfactual["payload_a"]
+    config = payload["config"]
+    assert config["controller_type"] == "planning"
+    assert config["predictor"].endswith("predictor.pt")
+    summary = payload["summary"]
+    assert summary["n_states"] == _TINY_STATES
+    assert 0.0 <= summary["mean_percentile_rank"] <= 1.0
+    for state in payload["states"]:
+        assert 0.0 <= state["controller_percentile_rank"] <= 1.0
+        candidates = state["candidates"]
+        assert len(candidates) == 1 + _TINY_ALTERNATIVES
+        assert candidates[0]["kind"] == "controller"
+        assert all(c["kind"] == "alternative" for c in candidates[1:])
+        # The planner action respects the full-action pm bounds on ZDT1
+        # (n_vars = 30).
+        pm = state["controller_action"]["mutation_probability"]
+        assert 0.25 / 30.0 - 1e-12 <= pm <= 8.0 / 30.0 + 1e-12
+
+
+def test_planning_controller_type_requires_predictor(
+    tiny_planning_counterfactual: dict[str, Any],
+) -> None:
+    """``--controller-type planning`` without ``--predictor`` is rejected."""
+    fixture = tiny_planning_counterfactual
+    args = cfa.parse_args(
+        [
+            "evaluate",
+            "--problem", "zdt1",
+            "--snapshots-dir", str(fixture["root"] / "snapshots"),
+            "--out-dir", str(fixture["root"] / "eval_missing"),
+            "--controller", str(fixture["planner_path"]),
+            "--controller-type", "planning",
+            "--encoder", str(fixture["root"] / "encoder.json"),
+            "--n-alternatives", str(_TINY_ALTERNATIVES),
+            "--n-reps", str(_TINY_REPS),
+        ]
+    )
+    with pytest.raises(ValueError, match="predictor"):
+        cfa.run_evaluate(args)
