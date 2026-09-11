@@ -41,14 +41,51 @@
 | planning vs generation_only_mlp | 全部**显著负**（p≈1） |
 | planning vs mlp2_closed_loop_normalized | 仅 zdt3 **显著胜**（Holm p = 0.027）；zdt1/zdt2 无差异；zdt4/zdt6 负 |
 
+## 关键发现 A：planner 的排序器对 action 不敏感（D1–D5 诊断）
+
+任务卡 #8 的 action-conditional 诊断给出了 **Phase 2B 失败的根因**。
+
+**D1 — action 特征消融**（held-out 4050 样本）：
+
+| 变体 | R² | MSE |
+|---|---|---|
+| baseline | 0.99229 | 0.0014784 |
+| **shuffled**（跨样本打乱 action） | 0.99228 | 0.0014803 |
+| **mean**（替换为训练均值） | 0.99275 | 0.0013904 |
+| zero | 0.97080 | 0.0055984 |
+
+把整块 4 维 action 特征**打乱后性能几乎不变**（ΔR² ≈ 1e-5），换成均值甚至更好。
+→ **模型实质是 `state → future HV` 回归器，action 通道基本未被使用。**
+
+**D2 严格版 — 固定 state 下的排序质量**（20 快照 × 8 候选 × 3 分支种子 × 5 代，唯一真正受控的实验）：
+
+| 指标 | 值 | 解读 |
+|---|---|---|
+| Spearman（预测 vs 真实收益） | **−0.216** | 负相关 |
+| Kendall | −0.139 | 负相关 |
+| 显著比例 | 0.071（1/14） | 近乎无 |
+| **argmax 命中 oracle 最优** | **14.3%** | 8 候选随机基线 = 12.5% |
+| 对齐 horizon（h=5 列）后的 Spearman | −0.182 | 不能用"目标 horizon 不匹配"解释 |
+
+> D2 近似版（340 组）看似 Spearman 0.641，但**把 action 行打乱后仍为 0.639** — 该相关完全由状态驱动，
+> 是 checksum 而非因果证据。严格版才是有效证据。
+
+**D3/D4/D5 — 机制**：
+
+- top-1 regret 均值 **0.0422 HV**（中位 0.0136，n=14）
+- **action-effect SNR = 1.35**（同状态候选间方差仅为重复噪声的 1.35 倍）→ 5 代内 action 的真实影响本身很弱
+- predicted-vs-actual Pearson 0.324，**斜率 0.114** → 预测幅度被压缩到真值尺度的零头
+
+**结论**：planner 输给 static / generation-only 的根因在**排序器**——用对 action 不敏感的 outcome model
+做 argmax，等价于**在噪声上取最大**。候选集不是瓶颈。
+
 ## 关键观察
 
 1. **planner 优于固定策略，但不及静态最优与开环 schedule**：planner 在 4/5 问题显著优于
    fixed NSGA-II，却在**所有 5 个问题**上不及 `static_full_global` 与 `generation_only_mlp`。
 2. **zdt4 是 planner 的主要失败点**：失败率 0.85（vs generation_only 的 0.05、static_full_per_problem 的 0.30）。
    计划书预期"闭环价值在困难问题上显现"——但当前 planner 在 zdt4 上反而崩溃。
-   可能原因：predictor 在 zdt4 的失败分布上训练不足（Phase 1.75 语料中 zdt4 有 13% HV=0 的 run），
-   且 planner 的 argmax 可能过度乐观。
+   D4 的 SNR=1.35 提供了机制解释：困难问题上 planner 的排序更不可靠。
 3. **static_full_global 在 zdt4 上 HV=0（失败率 1.00）**：全局静态 pm 在多峰问题上失效，
    这正是 planner 本应发挥价值的场景，但 planner 未能利用。
 
@@ -69,10 +106,13 @@
    同一代在不同 run 间共享同一候选流（绝对 pm 仍随 1/n_vars 缩放）。
    这会降低跨 run 的候选多样性、可能造成决策相关。评审建议后续 robustness 实验
    把 (problem, run seed, generation) 混入种子。
-2. **缺少 action-conditional 诊断**：Phase 2A 的高 R² 可能主要来自 state/history，
-   而非学到了 action 的影响。任务卡 #8（action ablation / within-state ranking /
-   top-1 regret / action-effect SNR）尚未交付。
-3. **失败率不作为主指标**：zdt4 的 0.85 失败率表明均值被少数成功 run 主导。
+2. **D1/D2-近似使用 `results/trajectory_full`，其 action 缺 `mutation_multiplier`**：
+   `build_outcome_samples` 回落到 `n_vars=30`，对 ZDT4（n_vars=10）放大 3 倍。
+   诊断脚本默认按 run config 还原 `pm * n_vars`；对照实验（`--no-multiplier-normalization`）
+   给出 baseline R²=0.9912，**结论不变**。
+3. **严格版 D2 有 6/20 状态被剔除**（各候选真实增益完全相同，多为 gen=2 早世代）；
+   原始与计分状态数均写入 artifact。
+4. **失败率不作为主指标**：zdt4 的 0.85 失败率表明均值被少数成功 run 主导。
 
 ## Go/No-Go 状态
 
@@ -81,9 +121,17 @@
 | 标准 | 状态 |
 |---|---|
 | 1. planner 经校正后优于 fixed/static 基线 | ❌ 仅优于 fixed，**不及 static** |
-| 2. 反事实显示选中动作有正 advantage | ⏳ 长 horizon 结果待出 |
-| 3. 预测排序与真实未来结果相关 | ⏳ 待出（horizon 评估的 Spearman/Kendall 字段） |
-| 4. 收益不能由静态 schedule 解释 | ❌ 目前 generation_only_mlp 全面优于 planner，**静态/schedule 解释力更强** |
+| 2. 反事实显示选中动作有正 advantage | ⏳ 长 horizon 评估运行中（一步版 rank≈0.50） |
+| 3. 预测排序与真实未来结果相关 | ❌ **D2 严格版 Spearman = −0.216**（负相关），argmax 命中率 14.3% ≈ 随机 |
+| 4. 收益不能由静态 schedule 解释 | ❌ generation_only_mlp 全面优于 planner |
 
-**当前倾向：不通过 Phase 2B 的 gate，不进入 Mamba/SSM。** 最终判定待长 horizon 反事实与
-action-conditional 诊断结果。
+**判定倾向：不通过 Phase 2B gate，不进入 Mamba/SSM。** 核心阻塞点是**排序器而非模型容量**：
+outcome predictor 的高 R² 由 state 驱动（D1），action 通道未被学习（D2/D5），且 action 的真实
+影响在 5 代尺度上信噪比仅 1.35（D4）——在此 SNR 下任何排序学习都会退化。
+
+**下一步建议（不实施，仅记录）**：
+1. 改学习目标为 **action advantage**（相对 state-only 基线的增量），而非绝对 future HV
+2. 训练时加入 **action-shuffled 负样本**做对比学习，强制模型使用 action 通道
+3. 先提升 D4 的 **SNR > 3**（更长 horizon、更强算子范围、降低重复噪声）再谈学习排序
+4. 若以上均无效，则 Phase 1.75 的结论（闭环价值有限）得到独立二次确认，
+   研究方向应转向 generation-only schedule 的最优化或问题自适应策略选择
