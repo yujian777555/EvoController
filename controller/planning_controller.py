@@ -212,16 +212,10 @@ class PlanningController:
     ) -> dict[str, Any]:
         """Select the candidate action with the best predicted outcome.
 
-        Samples ``n_candidates`` actions with a generator seeded by
-        ``[candidate_seed, len(history)]``, builds one predictor input per
-        candidate (``encoder.transform(history)`` concatenated with
-        ``[mutation_multiplier, exploration_strength, onehot_polynomial,
-        onehot_gaussian]``, exactly the
-        :func:`controller.dataset.build_outcome_samples` layout), predicts
-        future-HV vectors, scores each candidate as
-        ``sum(w_h * pred[i, h])`` over horizons, and returns the argmax
-        candidate. Ties break toward the earliest sampled candidate
-        (``np.argmax`` semantics), keeping the selection deterministic.
+        Thin wrapper over :meth:`predict_action_ex` that discards the
+        candidate diagnostics, so the deployed action and the diagnostics
+        can never drift apart; that method documents the candidate
+        sampling and the weighted-argmax selection rule.
 
         Args:
             history: Merged state+reward dicts, oldest first, covering
@@ -251,6 +245,88 @@ class PlanningController:
                 exposes an ``input_dim`` that does not equal
                 ``encoder.transform(history).size + 4``.
         """
+        action, _diagnostics = self.predict_action_ex(
+            history, encoder, pm_min, pm_max, n_vars=n_vars
+        )
+        return action
+
+    def predict_action_ex(
+        self,
+        history: list[dict[str, Any]],
+        encoder: Any,
+        pm_min: float,
+        pm_max: float,
+        n_vars: int | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Select the best predicted candidate action, plus its diagnostics.
+
+        Samples ``n_candidates`` actions with a generator seeded by
+        ``[candidate_seed, len(history)]``, builds one predictor input per
+        candidate (``encoder.transform(history)`` concatenated with
+        ``[mutation_multiplier, exploration_strength, onehot_polynomial,
+        onehot_gaussian]``, exactly the
+        :func:`controller.dataset.build_outcome_samples` layout), predicts
+        future-HV vectors, scores each candidate as
+        ``sum(w_h * pred[i, h])`` over horizons, and selects the argmax
+        candidate. Ties break toward the earliest sampled candidate
+        (``np.argmax`` semantics), keeping the selection deterministic.
+
+        This is the single implementation of the selection rule:
+        :meth:`predict_action` calls it and discards the diagnostics, so
+        the returned action and the diagnostics always describe the same
+        candidate set.
+
+        Args:
+            history: Merged state+reward dicts, oldest first, covering
+                generations strictly before the action to take.
+            encoder: Fitted encoder matching the predictor's training
+                encoder (:class:`controller.StateEncoder` or
+                :class:`controller.ProblemAwareEncoder`).
+            pm_min: Accepted for interface compatibility with
+                :meth:`controller.multihead_controller.MultiHeadController.predict_action`;
+                unused, because candidate probabilities are drawn from
+                ``pm_mult_range`` around ``1 / n_vars`` and therefore
+                already lie inside ``[lo / n_vars, hi / n_vars]``.
+            pm_max: See ``pm_min``.
+            n_vars: Decision-variable count of the problem being solved;
+                fixes both the sampling base ``1 / n_vars`` and the
+                multiplier feature ``pm * n_vars``. ``None`` applies the
+                legacy fallback :data:`PLANNING_FALLBACK_N_VARS`.
+
+        Returns:
+            ``(action, diagnostics)``.
+
+            ``action`` carries exactly the keys ``"mutation_operator"``,
+            ``"mutation_probability"`` and ``"exploration_strength"`` and
+            is the dict :meth:`predict_action` returns.
+
+            ``diagnostics`` holds one entry per sampled candidate in
+            sampling order, so an experiment artifact can reconstruct the
+            decision:
+
+            * ``"candidates"``: ``n_candidates`` dicts with keys
+              ``"mutation_operator"``, ``"mutation_probability"``,
+              ``"exploration_strength"`` and ``"mutation_multiplier"``
+              (``mutation_probability * n_vars``, the predictor feature).
+            * ``"predicted_hv"``: ``n_candidates`` predicted future-HV
+              vectors, one float per predictor horizon (column order of
+              ``predictor.horizons``).
+            * ``"scores"``: ``n_candidates`` weighted scores
+              (``predicted_hv @ horizon_weights``).
+            * ``"selected_index"``: index of the executed candidate, equal
+              to ``int(np.argmax(scores))``; the executed action is
+              ``diagnostics["candidates"]["selected_index"]``.
+            * ``"score_margin"``: top-1 minus top-2 score, ``0.0`` when
+              only one candidate was sampled.
+            * ``"score_std"``: population standard deviation of the
+              candidate scores (``0.0`` for a single candidate), i.e. how
+              far the predictor separates the candidates at all.
+
+        Raises:
+            ValueError: If a provided ``n_vars`` is < 1, or the predictor
+                exposes an ``input_dim`` that does not equal
+                ``encoder.transform(history).size + 4``.
+        """
         history = list(history)
         resolved_n_vars = self._resolve_n_vars(n_vars)
         base_pm = 1.0 / resolved_n_vars
@@ -267,6 +343,7 @@ class PlanningController:
         )
         rows: list[np.ndarray] = []
         candidates: list[tuple[str, float, float]] = []
+        multipliers: list[float] = []
         for _ in range(self._n_candidates):
             operator, pm, exploration = sample_full_action(
                 rng, base_pm, self._pm_mult_range
@@ -279,17 +356,50 @@ class PlanningController:
             )
             rows.append(np.concatenate([state_block, action_features]))
             candidates.append((operator, float(pm), float(exploration)))
+            multipliers.append(multiplier)
         predictions = np.asarray(
             self._predictor.predict(np.vstack(rows)), dtype=np.float64
         )
         scores = predictions @ np.asarray(self._horizon_weights, dtype=np.float64)
         best = int(np.argmax(scores))
         operator, pm, exploration = candidates[best]
-        return {
+        action = {
             "mutation_operator": operator,
             "mutation_probability": float(pm),
             "exploration_strength": float(exploration),
         }
+        if scores.size > 1:
+            top_two = np.sort(scores)[-2:]
+            score_margin = float(top_two[-1] - top_two[0])
+        else:
+            score_margin = 0.0
+        # Diagnostics are derived from the very values the action uses, so
+        # ``candidates[selected_index]`` is the executed action.
+        candidate_diagnostics = [
+            {
+                "mutation_operator": candidate_operator,
+                "mutation_probability": candidate_pm,
+                "exploration_strength": candidate_exploration,
+                "mutation_multiplier": candidate_multiplier,
+            }
+            for (
+                candidate_operator,
+                candidate_pm,
+                candidate_exploration,
+            ), candidate_multiplier in zip(candidates, multipliers)
+        ]
+        diagnostics = {
+            "candidates": candidate_diagnostics,
+            "predicted_hv": [
+                [float(value) for value in predictions[k]]
+                for k in range(predictions.shape[0])
+            ],
+            "scores": [float(value) for value in scores],
+            "selected_index": int(best),
+            "score_margin": score_margin,
+            "score_std": float(np.std(scores)),
+        }
+        return action, diagnostics
 
     def save(self, path: str | Path) -> None:
         """Serialize the planner config to JSON.

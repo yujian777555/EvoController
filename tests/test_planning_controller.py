@@ -12,6 +12,11 @@ Two predictor flavors are exercised:
   weighted-argmax selection rule, the candidate-seeding scheme, and the
   ``n_vars`` fallback.
 
+``predict_action_ex`` (Phase-2B candidate diagnostics) is pinned against
+``predict_action``: the action half must match the plain API exactly, and
+the diagnostics must reproduce the scored candidate set, the weighted
+scores, the argmax index, the top-1/top-2 margin and the score spread.
+
 All trajectories are synthetic and follow the ``EvolutionRecorder``
 schema, mirroring the fixtures of ``test_outcome_predictor.py``.
 """
@@ -408,3 +413,165 @@ def test_save_load_round_trip(tmp_path: Path) -> None:
     assert restored.predict_action(history, encoder, 0.0, 1.0) == (
         planner.predict_action(history, encoder, 0.0, 1.0)
     )
+
+
+# --- Phase 2B: candidate diagnostics (predict_action_ex) ---------------------
+
+_DIAGNOSTIC_KEYS = {
+    "candidates",
+    "predicted_hv",
+    "scores",
+    "selected_index",
+    "score_margin",
+    "score_std",
+}
+_ACTION_KEYS = {"mutation_operator", "mutation_probability", "exploration_strength"}
+
+
+def _trained_predictor() -> tuple[OutcomePredictor, StateEncoder, list[list[dict[str, Any]]]]:
+    """Lightly-trained OutcomePredictor plus its encoder and trajectories."""
+    trajectories = _trajectories()
+    encoder = StateEncoder(_WINDOW).fit(trajectories)
+    X, y, _, _ = build_outcome_samples(trajectories, encoder, _WINDOW, _HORIZONS)
+    predictor = OutcomePredictor(
+        input_dim=X.shape[1], horizons=_HORIZONS, hidden_dims=(8, 8), seed=0
+    )
+    predictor.fit(X, y, epochs=3)
+    return predictor, encoder, trajectories
+
+
+def test_predict_action_ex_action_matches_predict_action_exactly() -> None:
+    """Same history/seed -> identical action; diagnostics describe it.
+
+    The wrapper contract: ``predict_action`` is ``predict_action_ex`` minus
+    the diagnostics, so both must return the very same action dict for the
+    same inputs, with exactly the three documented keys.
+    """
+    predictor, encoder, trajectories = _trained_predictor()
+    planner = PlanningController(
+        predictor, n_candidates=8, candidate_seed=7, horizon_weights=[0.4, 0.6]
+    )
+    for t in (0, 4, 9):
+        history = _history_for_t(trajectories, t)
+        for n_vars in (None, 10):
+            action_plain = planner.predict_action(
+                history, encoder, 0.0, 1.0, n_vars=n_vars
+            )
+            action_ex, diagnostics = planner.predict_action_ex(
+                history, encoder, 0.0, 1.0, n_vars=n_vars
+            )
+            assert action_ex == action_plain
+            assert set(action_plain) == _ACTION_KEYS
+            assert set(action_ex) == _ACTION_KEYS
+            assert set(diagnostics) == _DIAGNOSTIC_KEYS
+            # The executed action is the selected diagnostic candidate.
+            selected = diagnostics["candidates"][diagnostics["selected_index"]]
+            assert action_ex["mutation_operator"] == selected["mutation_operator"]
+            assert action_ex["mutation_probability"] == (
+                selected["mutation_probability"]
+            )
+            assert action_ex["exploration_strength"] == (
+                selected["exploration_strength"]
+            )
+
+
+def test_predict_action_ex_diagnostics_match_the_scored_candidates() -> None:
+    """Diagnostics reproduce candidates, predictions, scores and the argmax.
+
+    The spy responds with ``pred[i, k] = multiplier_i * (k + 1)``, so every
+    documented diagnostic field has an independently computable value.
+    """
+    trajectories = _trajectories()
+    encoder = StateEncoder(_WINDOW).fit(trajectories)
+    weights = (0.3, 0.7)
+
+    def responder(rows: np.ndarray) -> np.ndarray:
+        multiplier = rows[:, -4]
+        factors = np.asarray([k + 1.0 for k in range(len(_HORIZONS))])
+        return multiplier[:, None] * factors[None, :]
+
+    spy = _SpyPredictor(input_dim=encoder.dim + 4, responder=responder)
+    n_candidates = 12
+    planner = PlanningController(
+        spy, n_candidates=n_candidates, candidate_seed=9, horizon_weights=list(weights)
+    )
+    history = _history_for_t(trajectories, 4)
+    action, diagnostics = planner.predict_action_ex(history, encoder, 0.0, 1.0)
+
+    assert set(diagnostics) == _DIAGNOSTIC_KEYS
+    rows = spy.calls[0]
+    predictions = responder(rows)
+    scores = predictions @ np.asarray(weights, dtype=np.float64)
+
+    assert len(diagnostics["candidates"]) == n_candidates
+    assert len(diagnostics["predicted_hv"]) == n_candidates
+    assert len(diagnostics["scores"]) == n_candidates
+    assert diagnostics["predicted_hv"] == predictions.tolist()
+    assert diagnostics["scores"] == pytest.approx(scores.tolist())
+    assert diagnostics["selected_index"] == int(np.argmax(scores))
+    ordered = np.sort(scores)
+    assert diagnostics["score_margin"] == pytest.approx(ordered[-1] - ordered[-2])
+    assert diagnostics["score_std"] == pytest.approx(float(np.std(scores)))
+
+    # Every diagnostic candidate decodes from the row fed to the predictor.
+    for k, candidate in enumerate(diagnostics["candidates"]):
+        multiplier, exploration, onehot_p, onehot_g = rows[k, encoder.dim :]
+        assert candidate["mutation_multiplier"] == pytest.approx(multiplier)
+        assert candidate["exploration_strength"] == pytest.approx(exploration)
+        assert candidate["mutation_probability"] == pytest.approx(
+            multiplier / PLANNING_FALLBACK_N_VARS
+        )
+        assert candidate["mutation_operator"] == (
+            "polynomial" if onehot_p == 1.0 else "gaussian"
+        )
+    selected = diagnostics["candidates"][diagnostics["selected_index"]]
+    assert action["mutation_operator"] == selected["mutation_operator"]
+    assert action["mutation_probability"] == pytest.approx(
+        selected["mutation_probability"]
+    )
+    assert action["exploration_strength"] == pytest.approx(
+        selected["exploration_strength"]
+    )
+
+
+def test_predict_action_ex_single_candidate_has_zero_margin_and_std() -> None:
+    """One candidate means no runner-up: margin and score std are 0.0."""
+    encoder = _fitted_encoder()
+    spy = _SpyPredictor(input_dim=encoder.dim + 4)
+    planner = PlanningController(spy, n_candidates=1, horizon_weights=[0.5, 0.5])
+    action, diagnostics = planner.predict_action_ex(
+        _history_for_t(_trajectories(), 4), encoder, 0.0, 1.0
+    )
+    assert len(diagnostics["candidates"]) == 1
+    assert len(diagnostics["predicted_hv"]) == 1
+    assert len(diagnostics["scores"]) == 1
+    assert diagnostics["selected_index"] == 0
+    assert diagnostics["score_margin"] == 0.0
+    assert diagnostics["score_std"] == 0.0
+    assert action == {
+        key: diagnostics["candidates"][0][key] for key in _ACTION_KEYS
+    }
+
+
+def test_predict_action_ex_ties_select_the_earliest_candidate() -> None:
+    """All-equal predictions keep np.argmax semantics: candidate 0 wins."""
+    encoder = _fitted_encoder()
+
+    def responder(rows: np.ndarray) -> np.ndarray:
+        return np.ones((rows.shape[0], len(_HORIZONS)), dtype=np.float64)
+
+    spy = _SpyPredictor(input_dim=encoder.dim + 4, responder=responder)
+    planner = PlanningController(
+        spy, n_candidates=6, candidate_seed=2, horizon_weights=[0.5, 0.5]
+    )
+    history = _history_for_t(_trajectories(), 3)
+    action, diagnostics = planner.predict_action_ex(history, encoder, 0.0, 1.0)
+    assert diagnostics["scores"] == [1.0] * 6
+    assert diagnostics["selected_index"] == 0
+    assert diagnostics["score_margin"] == 0.0
+    assert diagnostics["score_std"] == 0.0
+    assert action == {
+        key: diagnostics["candidates"][0][key] for key in _ACTION_KEYS
+    }
+    # The plain API selects the same candidate on the same tie.
+    assert planner.predict_action(history, encoder, 0.0, 1.0) == action

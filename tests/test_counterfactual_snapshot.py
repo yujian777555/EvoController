@@ -17,6 +17,12 @@ Covers the Phase-1.75 Task-5 contract:
   PlanningController config JSON wrapping a synthetic-trained
   OutcomePredictor) is deterministic, yields ranks in [0, 1], and rejects
   a missing ``--predictor``.
+* Phase 2B Task 4: the ``evaluate-horizon`` / ``aggregate-horizon`` pair is
+  deterministic, records per-horizon percentile ranks, oracle regret and
+  predicted-vs-realized correlations (null without an outcome model or for
+  horizons the predictor does not cover), spells rewards as
+  ``hv(after h generations) - hv(before the branch)``, and accumulates
+  hypervolume over a multi-generation branch on an HV-positive state.
 
 Runtime is dominated by the torch import; the NSGA-II runs are tiny
 (pop 20, <= 8 generations) and stay well under 60 s in total.
@@ -526,3 +532,351 @@ def test_planning_controller_type_requires_predictor(
     )
     with pytest.raises(ValueError, match="predictor"):
         cfa.run_evaluate(args)
+
+
+# --- Phase 2B Task 4: long-horizon counterfactual evaluator ------------------
+
+#: Horizons of the tiny ``evaluate-horizon`` runs. ``2`` is one of the tiny
+#: planning predictor's horizons (``[1, 2]``) while ``4`` is not, so the
+#: planning run exercises both the available and the unavailable case.
+_TINY_HORIZONS = ["2", "4"]
+_TINY_HORIZON_ALTERNATIVES = 3
+_TINY_HORIZON_REPS = 2
+#: Harvest length of the HV-positive fixture: with pop 20 the generation-2
+#: state still has HV = 0 under the (1.1, 1.1) reference point, while the
+#: generation-58 state of a 60-generation run has HV > 0.
+_TINY_LONG_GENS = 60
+
+
+def _horizon_argv(
+    *,
+    out_dir: Path,
+    snapshots_dir: Path,
+    root: Path,
+    controller: Path,
+    controller_type: str = "multihead",
+    predictor: Path | None = None,
+) -> list[str]:
+    """Command line of a tiny ``evaluate-horizon`` run on the shared zdt1 state."""
+    argv = [
+        "evaluate-horizon",
+        "--problem", "zdt1",
+        "--snapshots-dir", str(snapshots_dir),
+        "--out-dir", str(out_dir),
+        "--controller", str(controller),
+        "--controller-type", controller_type,
+        "--encoder", str(root / "encoder.json"),
+        "--horizons", *_TINY_HORIZONS,
+        "--n-alternatives", str(_TINY_HORIZON_ALTERNATIVES),
+        "--n-reps", str(_TINY_HORIZON_REPS),
+    ]
+    if predictor is not None:
+        argv += ["--predictor", str(predictor)]
+    return argv
+
+
+@pytest.fixture(scope="module")
+def tiny_horizon_counterfactual(tiny_counterfactual: dict[str, Any]) -> dict[str, Any]:
+    """Run the tiny multihead ``evaluate-horizon`` twice (determinism)."""
+    root = tiny_counterfactual["root"]
+    snapshots_dir = root / "snapshots"
+
+    def _run(out_dir: Path) -> dict[str, Any]:
+        return cfa.run_evaluate_horizon(
+            cfa.parse_args(
+                _horizon_argv(
+                    out_dir=out_dir,
+                    snapshots_dir=snapshots_dir,
+                    root=root,
+                    controller=root / "controller.pt",
+                )
+            )
+        )
+
+    return {
+        "root": root,
+        "payload_a": _run(root / "horizon_a"),
+        "payload_b": _run(root / "horizon_b"),
+    }
+
+
+def test_horizon_evaluator_is_deterministic(
+    tiny_horizon_counterfactual: dict[str, Any],
+) -> None:
+    """Two identical invocations produce identical payloads and JSON bytes."""
+    payload_a = tiny_horizon_counterfactual["payload_a"]
+    payload_b = tiny_horizon_counterfactual["payload_b"]
+    assert payload_a == payload_b
+    root = tiny_horizon_counterfactual["root"]
+    bytes_a = (root / "horizon_a" / "counterfactual_horizon_zdt1.json").read_bytes()
+    bytes_b = (root / "horizon_b" / "counterfactual_horizon_zdt1.json").read_bytes()
+    assert bytes_a == bytes_b
+
+
+def test_horizon_evaluator_records_schema_and_ranks(
+    tiny_horizon_counterfactual: dict[str, Any],
+) -> None:
+    """Per-horizon records are complete, self-consistent and in range."""
+    root = tiny_horizon_counterfactual["root"]
+    out_path = root / "horizon_a" / "counterfactual_horizon_zdt1.json"
+    assert out_path.is_file()
+    payload = tiny_horizon_counterfactual["payload_a"]
+
+    assert payload["problem"] == "zdt1"
+    config = payload["config"]
+    assert config["horizons"] == [2, 4]
+    assert config["branch_generations"] == 4
+    assert config["controller_type"] == "multihead"
+    assert config["predictor"] is None
+    assert config["n_alternatives"] == _TINY_HORIZON_ALTERNATIVES
+    assert config["n_reps"] == _TINY_HORIZON_REPS
+
+    summary = payload["summary"]
+    assert summary["n_states"] == _TINY_STATES
+    assert summary["seeds"] == [1000]
+    assert set(summary["per_horizon"]) == set(_TINY_HORIZONS)
+    for key, entry in summary["per_horizon"].items():
+        assert entry["n_states"] == _TINY_STATES
+        assert 0.0 <= entry["mean_percentile_rank"] <= 1.0
+        assert entry["mean_oracle_regret"] >= 0.0
+        # No outcome model -> correlations are reported as null, never faked.
+        assert entry["n_states_with_correlation"] == 0
+        assert entry["mean_spearman"] is None
+        assert entry["mean_kendall"] is None
+
+    for state in payload["states"]:
+        assert set(state["per_horizon"]) == set(_TINY_HORIZONS)
+        assert state["prediction_available"] is False
+        candidates = state["candidates"]
+        assert len(candidates) == 1 + _TINY_HORIZON_ALTERNATIVES
+        assert candidates[0]["kind"] == "controller"
+        assert all(c["kind"] == "alternative" for c in candidates[1:])
+        for candidate in candidates:
+            assert candidate["predicted_reward"] is None
+            assert set(candidate["future_hv"]) == set(_TINY_HORIZONS)
+            for key in _TINY_HORIZONS:
+                assert len(candidate["future_hv"][key]) == _TINY_HORIZON_REPS
+                assert len(candidate["reward"][key]) == _TINY_HORIZON_REPS
+                for rep in range(_TINY_HORIZON_REPS):
+                    # reward_h = hv(after h generations) - hv(before branch)
+                    assert candidate["reward"][key][rep] == pytest.approx(
+                        candidate["future_hv"][key][rep]
+                        - state["state_metrics"]["hv"]
+                    )
+        # NB: hypervolume is not pointwise monotone in the horizon here --
+        # NSGA-II truncates an oversized first front by crowding distance,
+        # which can drop a nondominated point. The HV-positive fixture below
+        # checks the accumulation behaviour on a non-degenerate state.
+        for key in _TINY_HORIZONS:
+            entry = state["per_horizon"][key]
+            means = [float(np.mean(c["reward"][key])) for c in candidates]
+            ranks_per_rep = [
+                cfa.percentile_rank_of_first(
+                    [c["reward"][key][rep] for c in candidates]
+                )
+                for rep in range(_TINY_HORIZON_REPS)
+            ]
+            assert 0.0 <= entry["controller_percentile_rank"] <= 1.0
+            assert entry["controller_percentile_rank"] == pytest.approx(
+                float(np.mean(ranks_per_rep))
+            )
+            assert entry["controller_percentile_rank_per_rep"] == pytest.approx(
+                ranks_per_rep
+            )
+            assert entry["controller_mean_reward"] == pytest.approx(means[0])
+            assert entry["best_candidate_index"] == int(np.argmax(means))
+            assert entry["best_mean_reward"] == pytest.approx(max(means))
+            assert entry["oracle_regret"] == pytest.approx(max(means) - means[0])
+            assert entry["oracle_regret"] >= 0.0
+            assert entry["candidate_reward_spread"] == pytest.approx(
+                max(means) - min(means)
+            )
+            assert entry["planner_is_oracle_argmax"] == (
+                entry["best_candidate_index"] == 0
+            )
+
+
+@pytest.fixture(scope="module")
+def tiny_long_horizon(tiny_counterfactual: dict[str, Any]) -> dict[str, Any]:
+    """``evaluate-horizon`` on a late, HV-positive zdt1 snapshot.
+
+    The 8-generation fixture states all have HV = 0 under the (1.1, 1.1)
+    reference point, so they cannot demonstrate that a branch accumulates
+    hypervolume over generations. This fixture harvests a 60-generation run
+    (reusing the fixture's encoder and controller) whose generation-58 state
+    has HV > 0, so the multi-generation rewards are non-degenerate.
+    """
+    root = tiny_counterfactual["root"]
+    snapshots_dir = root / "snapshots_long"
+    cfa.harvest_snapshots(
+        "zdt1",
+        seed=1000,
+        generations=_TINY_LONG_GENS,
+        pop_size=_POP_SIZE,
+        states_per_run=_TINY_STATES,
+        n_reference_points=200,
+        ref_point=np.asarray([1.1, 1.1]),
+        out_dir=snapshots_dir,
+    )
+    payload = cfa.run_evaluate_horizon(
+        cfa.parse_args(
+            _horizon_argv(
+                out_dir=root / "horizon_long",
+                snapshots_dir=snapshots_dir,
+                root=root,
+                controller=root / "controller.pt",
+            )
+        )
+    )
+    return {"root": root, "payload": payload}
+
+
+def test_horizon_evaluator_branches_accumulate_hypervolume(
+    tiny_long_horizon: dict[str, Any],
+) -> None:
+    """On an HV-positive state longer branches really run more generations."""
+    payload = tiny_long_horizon["payload"]
+    assert payload["config"]["generations"] == _TINY_LONG_GENS
+    late_state = max(payload["states"], key=lambda s: s["state_metrics"]["hv"])
+    hv_before = late_state["state_metrics"]["hv"]
+    assert hv_before > 0.0
+    h2 = late_state["per_horizon"]["2"]
+    h4 = late_state["per_horizon"]["4"]
+    assert h2["n_candidates"] == 1 + _TINY_HORIZON_ALTERNATIVES
+    assert 0.0 <= h2["controller_percentile_rank"] <= 1.0
+    assert 0.0 <= h4["controller_percentile_rank"] <= 1.0
+    assert h2["oracle_regret"] >= 0.0 and h4["oracle_regret"] >= 0.0
+    assert h2["candidate_reward_spread"] >= 0.0 and h4["candidate_reward_spread"] >= 0.0
+
+    h2_values = [v for c in late_state["candidates"] for v in c["future_hv"]["2"]]
+    h4_values = [v for c in late_state["candidates"] for v in c["future_hv"]["4"]]
+    # The branch gains hypervolume over generations, and the 4-generation
+    # horizon is strictly better than the 2-generation one on this state --
+    # the difference the one-step Phase-1.75 evaluator cannot observe.
+    assert max(h2_values) > hv_before
+    assert max(h4_values) > max(h2_values)
+    # Rewards stay measured against the branch point and are never clipped:
+    # crowding-distance truncation can make a longer horizon marginally worse
+    # than a shorter one (min(h4 - h2) < 0 for this fixture), and that is
+    # recorded rather than clamped.
+    for candidate in late_state["candidates"]:
+        for key in _TINY_HORIZONS:
+            for rep in range(_TINY_HORIZON_REPS):
+                assert candidate["reward"][key][rep] == pytest.approx(
+                    candidate["future_hv"][key][rep] - hv_before
+                )
+    assert min(h4_values) >= hv_before - 1e-2
+
+    # Recompute the ranks and regrets from the recorded candidate rewards.
+    # This state has non-zero, candidate-dependent rewards, so a swapped
+    # replicate/candidate axis (a bug the degenerate fixture cannot expose)
+    # would make these differ.
+    candidates = late_state["candidates"]
+    # The check below only has teeth if the candidate rewards actually differ.
+    assert max(h4_values) - min(h4_values) > 1e-6
+    for key in _TINY_HORIZONS:
+        entry = late_state["per_horizon"][key]
+        ranks_per_rep = [
+            cfa.percentile_rank_of_first([c["reward"][key][rep] for c in candidates])
+            for rep in range(_TINY_HORIZON_REPS)
+        ]
+        means = [float(np.mean(c["reward"][key])) for c in candidates]
+        assert entry["controller_percentile_rank_per_rep"] == pytest.approx(
+            ranks_per_rep
+        )
+        assert entry["controller_percentile_rank"] == pytest.approx(
+            float(np.mean(ranks_per_rep))
+        )
+        assert entry["controller_mean_reward"] == pytest.approx(means[0])
+        assert entry["best_candidate_index"] == int(np.argmax(means))
+        assert entry["best_mean_reward"] == pytest.approx(max(means))
+        assert entry["oracle_regret"] == pytest.approx(max(means) - means[0])
+        assert entry["candidate_reward_spread"] == pytest.approx(
+            max(means) - min(means)
+        )
+
+
+@pytest.fixture(scope="module")
+def tiny_horizon_planning(tiny_planning_counterfactual: dict[str, Any]) -> dict[str, Any]:
+    """Tiny ``evaluate-horizon`` run with ``--controller-type planning``."""
+    root = tiny_planning_counterfactual["root"]
+    payload = cfa.run_evaluate_horizon(
+        cfa.parse_args(
+            _horizon_argv(
+                out_dir=root / "horizon_planning",
+                snapshots_dir=root / "snapshots",
+                root=root,
+                controller=tiny_planning_counterfactual["planner_path"],
+                controller_type="planning",
+                predictor=tiny_planning_counterfactual["predictor_path"],
+            )
+        )
+    )
+    return {"root": root, "payload": payload}
+
+
+def test_planning_horizon_reports_predicted_vs_realized_ranking(
+    tiny_horizon_planning: dict[str, Any],
+) -> None:
+    """Predictions are attached where the predictor covers the horizon."""
+    payload = tiny_horizon_planning["payload"]
+    assert payload["config"]["controller_type"] == "planning"
+    assert payload["config"]["predictor"].endswith("predictor.pt")
+    assert payload["summary"]["per_horizon"]["2"]["n_states_with_correlation"] <= (
+        _TINY_STATES
+    )
+    for state in payload["states"]:
+        assert state["prediction_available"] is True
+        # Horizon 2 is one of the predictor's horizons ([1, 2]); 4 is not.
+        assert state["per_horizon"]["2"]["prediction_available"] is True
+        assert state["per_horizon"]["4"]["prediction_available"] is False
+        assert state["per_horizon"]["4"]["spearman_predicted_vs_realized"] is None
+        assert state["per_horizon"]["4"]["kendall_predicted_vs_realized"] is None
+        assert state["per_horizon"]["2"]["n_candidates"] == (
+            1 + _TINY_HORIZON_ALTERNATIVES
+        )
+        for key in _TINY_HORIZONS:
+            entry = state["per_horizon"][key]
+            spearman = entry["spearman_predicted_vs_realized"]
+            kendall = entry["kendall_predicted_vs_realized"]
+            assert spearman is None or -1.0 <= spearman <= 1.0
+            assert kendall is None or -1.0 <= kendall <= 1.0
+            assert (spearman is None) == (kendall is None)
+        for candidate in state["candidates"]:
+            predicted = candidate["predicted_reward"]
+            assert set(predicted) == {"2"}
+            assert candidate["kind"] == (
+                "controller" if candidate["index"] == 0 else "alternative"
+            )
+
+
+def test_aggregate_horizon_merges_bootstraps_and_thirds(
+    tiny_horizon_planning: dict[str, Any],
+) -> None:
+    """Aggregate-horizon pools per-horizon stats, CI, thirds; deterministic."""
+    root = tiny_horizon_planning["root"]
+    results_dir = root / "horizon_planning"
+    args = cfa.parse_args(
+        ["aggregate-horizon", "--problems", "zdt1", "--results-dir", str(results_dir)]
+    )
+    payload_a = cfa.run_aggregate_horizon(args)
+    payload_b = cfa.run_aggregate_horizon(args)
+    assert payload_a == payload_b
+    out_path = results_dir / "counterfactual_horizon.json"
+    assert out_path.is_file()
+
+    assert payload_a["config"]["horizons"] == [2, 4]
+    assert set(payload_a["horizons"]) == set(_TINY_HORIZONS)
+    for entry in payload_a["horizons"].values():
+        assert entry["n_states"] == _TINY_STATES
+        lo, hi = entry["bootstrap_ci_95"]
+        assert lo <= entry["mean_percentile_rank"] <= hi
+        assert entry["mean_oracle_regret"] >= 0.0
+        thirds = entry["generation_thirds"]
+        assert set(thirds) == {"early", "mid", "late"}
+        # Gens 2 and 6 of 8 -> 0.25 (early) and 0.75 (late); mid is empty.
+        assert thirds["early"]["n_states"] == 1
+        assert thirds["mid"]["n_states"] == 0
+        assert thirds["mid"]["mean_percentile_rank"] is None
+        assert thirds["late"]["n_states"] == 1
+    assert payload_a["per_problem"]["zdt1"]["2"]["n_states"] == _TINY_STATES
