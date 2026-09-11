@@ -73,21 +73,52 @@ gaussian，宏表 polynomial:gaussian = 5:2）。即宏级 planner 实际只有�
 真正的杠杆是**延长 horizon**（见关键发现 1）。建议若重试宏动作，改用**分位数等频划分**
 以保证覆盖与均衡。
 
-## Task 5 — Advantage-based Planner（评估运行中）
+## Task 5 — Advantage-based Planner（结果）
 
-`AdvantagePlannerController` 已实现（argmax 预测 advantage，接口与 PlanningController 一致），
-评估协议：5 问题 × 20 held-out seeds（1000–1019）× 100 代 × pop 100，
-对比 fixed_nsga2 / static_full_global / generation_only_mlp / phase2b_planner。
-结果待填入。
+评估协议：5 问题 × 20 held-out seeds（1000–1019）× 100 代 × pop 100（100 runs）。
+
+### final HV（mean±std，20 seeds）
+
+| problem | **advantage_planner** | Phase 2B planner | static_full_global | generation_only |
+|---|---|---|---|---|
+| zdt1 | **0.8683±.0004** | 0.8608 | 0.8674 | 0.8677 |
+| zdt2 | **0.5343±.0005** | 0.5225 | 0.5340 | 0.5338 |
+| zdt3 | **1.3247±.0008** | 1.3196 | 1.3235 | 1.3245 |
+| zdt4 | 0.3125±.1558 | 0.0865 | **0.0000** | **0.4076** |
+| zdt6 | 0.5021±.0006 | 0.4783 | 0.5028 | 0.5020 |
+
+### Holm 校正后的配对检验（final HV，advantage_planner greater）
+
+| 对比 | 显著胜 | 不显著 | 显著负 |
+|---|---|---|---|
+| vs fixed_nsga2 | zdt1/zdt2/zdt3/zdt6（p_holm ≈ 0） | zdt4 (p=0.077，d=+0.068) | — |
+| vs static_full_global | zdt1 (0.0022)、zdt3 (0.0020)、zdt4 (≈0) | zdt2 (0.177)、zdt6 (1.0) | — |
+| vs generation_only_mlp | zdt1 (0.011)、zdt2 (0.048) | zdt3 (0.61)、zdt6 (0.61) | zdt4（d=−0.095） |
+
+**核心变化**：Phase 2B 的 planner 输给所有非因果基线；advantage planner **在 zdt1/2/3 上取得全场最优**，
+且在 zdt4 上从 Phase 2B 的 0.0865 提升到 0.3125（static 基线的 ∞ 倍，因为后者在该问题 HV=0）。
+
+**诚实的不足**：
+
+1. **zdt4 仍不及 generation_only_mlp**（0.3125 vs 0.4076，d=−0.095），即困难问题上的优势未建立。
+2. **zdt6 与两个基线基本打平**（0.5021 vs 0.5028/0.5020），无显著提升。
+3. **改善幅度很小**（zdt1 +0.0009、zdt2 +0.0003、zdt3 +0.0013）——虽统计显著，但实际优化收益微弱；
+   这说明在 ZDT 这类相对简单的问题上，动作选择的提升空间本身有限。
+4. 验证状态仅 30 个（排序指标），样本量偏小。
 
 ## Gate 状态（PHASE2_75_PLAN.md）
 
 | 标准 | 状态 |
 |---|---|
-| 1. Predictor 性能在 action ablation 后下降 | ✅ **成立**（MSE-only 排序 Spearman 0.42 vs 对比训练 0.58；D1 已证 Phase 2B 模型不变） |
-| 2. 预测排序与真实排序相关 | ✅ **成立**（同状态长 horizon Spearman 0.58，oracle hit 30%） |
-| 3. 干预实验显示正 action advantage | ✅ **成立**（SNR 1.85→5.68 随 horizon 增长，且 h=20 超门槛） |
-| 4. Planner 优于非因果基线 | ⏳ **评估运行中** |
+| 1. Predictor 性能在 action ablation 后下降 | ✅ |
+| 2. 预测排序与真实排序相关 | ✅（长 horizon Spearman 0.58，oracle hit 30%） |
+| 3. 干预实验显示正 action advantage | ✅（SNR 1.85→5.68 随 horizon 增长） |
+| 4. Planner 优于非因果基线 | ⚠️ **部分成立**：vs static 3/5 显著胜、vs generation_only 2/5 显著胜，但 zdt4 负 |
 
-**前三条已通过，第四条待定。** 若第四条也通过，则 Phase 2.75 达成 Phase 2B 未竟的目标；
-若仍不通过，则说明"排序能力"与"优化收益"之间存在仍未解释的断层。
+**判定：Phase 2.75 达成决定性改善（从"全面落后"到"多个问题显著领先"），但第 4 条未达"全部问题"的严格口径。**
+是否进入 Mamba/SSM 需权衡：排序能力问题已解决（gate 1–3 全过），剩余瓶颈是**收益幅度微弱**与
+**困难问题（zdt4）未突破**——这两个问题都不是靠增加模型容量能解决的，而是需要更强的动作空间设计
+或更好的问题特征。
+
+**建议**：不急于上 Mamba/SSM；先在 zdt4 类困难问题上验证 advantage 信号是否被噪声吞没
+（该问题 SNR 分问题拆解），再决定是否值得投入序列建模。
