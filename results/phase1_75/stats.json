@@ -1,0 +1,1097 @@
+{
+  "failure_rates": {
+    "fixed_nsga2": {
+      "overall": 0.21,
+      "zdt1": 0.15,
+      "zdt2": 0.25,
+      "zdt3": 0.0,
+      "zdt4": 0.5,
+      "zdt6": 0.15
+    },
+    "generation_only_mlp": {
+      "overall": 0.01,
+      "zdt1": 0.0,
+      "zdt2": 0.0,
+      "zdt3": 0.0,
+      "zdt4": 0.05,
+      "zdt6": 0.0
+    },
+    "mlp2_closed_loop_absolute": {
+      "overall": 0.03,
+      "zdt1": 0.0,
+      "zdt2": 0.0,
+      "zdt3": 0.0,
+      "zdt4": 0.15,
+      "zdt6": 0.0
+    },
+    "mlp2_closed_loop_normalized": {
+      "overall": 0.03,
+      "zdt1": 0.0,
+      "zdt2": 0.0,
+      "zdt3": 0.0,
+      "zdt4": 0.15,
+      "zdt6": 0.0
+    },
+    "open_loop_global": {
+      "overall": 0.04,
+      "zdt1": 0.0,
+      "zdt2": 0.0,
+      "zdt3": 0.0,
+      "zdt4": 0.2,
+      "zdt6": 0.0
+    },
+    "open_loop_per_problem": {
+      "overall": 0.16,
+      "zdt1": 0.0,
+      "zdt2": 0.0,
+      "zdt3": 0.0,
+      "zdt4": 0.8,
+      "zdt6": 0.0
+    },
+    "state_scrambled_mlp": {
+      "overall": 0.06,
+      "zdt1": 0.0,
+      "zdt2": 0.0,
+      "zdt3": 0.0,
+      "zdt4": 0.3,
+      "zdt6": 0.0
+    },
+    "static_full_global": {
+      "overall": 0.2,
+      "zdt1": 0.0,
+      "zdt2": 0.0,
+      "zdt3": 0.0,
+      "zdt4": 1.0,
+      "zdt6": 0.0
+    },
+    "static_full_per_problem": {
+      "overall": 0.06,
+      "zdt1": 0.0,
+      "zdt2": 0.0,
+      "zdt3": 0.0,
+      "zdt4": 0.3,
+      "zdt6": 0.0
+    }
+  },
+  "meta": {
+    "arms": [
+      "fixed_nsga2",
+      "static_full_global",
+      "static_full_per_problem",
+      "open_loop_global",
+      "open_loop_per_problem",
+      "mlp2_closed_loop_absolute",
+      "mlp2_closed_loop_normalized",
+      "generation_only_mlp",
+      "state_scrambled_mlp"
+    ],
+    "control_arm": "mlp2_closed_loop_normalized",
+    "conventions": {
+      "bootstrap": {
+        "ci": "percentile 2.5/97.5 of resampled paired medians",
+        "n_boot": 10000,
+        "rng": "numpy Generator(PCG64)",
+        "seed": 0
+      },
+      "diff_orientation": "median(control - comparison); positive favours the control because both metrics are maximized",
+      "failed_runs": "included in metric statistics; failure rates reported separately",
+      "holm_family": "per (metric, comparison) across problems",
+      "std_ddof": 1,
+      "wilcoxon": "one-sided greater (control > comparison), zero_method=zsplit"
+    },
+    "n_eval_seeds": 20,
+    "n_problems": 5,
+    "primary_comparisons": [
+      "static_full_global",
+      "open_loop_global",
+      "generation_only_mlp",
+      "state_scrambled_mlp"
+    ],
+    "primary_metrics": [
+      "final_hv",
+      "auc_hv"
+    ]
+  },
+  "per_problem": {
+    "zdt1": {
+      "auc_hv": {
+        "arms": {
+          "fixed_nsga2": {
+            "failure_rate": 0.15,
+            "mean": 0.5371834381724476,
+            "median": 0.5368748985444955,
+            "n": 20,
+            "std": 0.032856833894196934
+          },
+          "generation_only_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.6327194909821464,
+            "median": 0.6331976500045502,
+            "n": 20,
+            "std": 0.008084574687200651
+          },
+          "mlp2_closed_loop_absolute": {
+            "failure_rate": 0.0,
+            "mean": 0.6283349310521038,
+            "median": 0.6275242441078737,
+            "n": 20,
+            "std": 0.008484720738628814
+          },
+          "mlp2_closed_loop_normalized": {
+            "failure_rate": 0.0,
+            "mean": 0.628358186129709,
+            "median": 0.6279445743864667,
+            "n": 20,
+            "std": 0.009822751101631399
+          },
+          "open_loop_global": {
+            "failure_rate": 0.0,
+            "mean": 0.5892609873596508,
+            "median": 0.5917127578430682,
+            "n": 20,
+            "std": 0.019389485483765553
+          },
+          "open_loop_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.5945718109919969,
+            "median": 0.5965160746714494,
+            "n": 20,
+            "std": 0.014672263902326108
+          },
+          "state_scrambled_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.6310702192293991,
+            "median": 0.6337331364040687,
+            "n": 20,
+            "std": 0.015392113982885754
+          },
+          "static_full_global": {
+            "failure_rate": 0.0,
+            "mean": 0.6586220164085202,
+            "median": 0.6573473223945383,
+            "n": 20,
+            "std": 0.011341715681736482
+          },
+          "static_full_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.6425720068749678,
+            "median": 0.640492726425871,
+            "n": 20,
+            "std": 0.010201371880618317
+          }
+        },
+        "comparisons": {
+          "generation_only_mlp": {
+            "ci_hi": 0.00026186830331137445,
+            "ci_lo": -0.013665589367461095,
+            "holm_p": 1.0,
+            "median_diff": -0.0033364593807004295,
+            "wilcoxon_p": 0.9620742797851562
+          },
+          "open_loop_global": {
+            "ci_hi": 0.04888097550811693,
+            "ci_lo": 0.025259554643020377,
+            "holm_p": 4.76837158203125e-06,
+            "median_diff": 0.03734427799557127,
+            "wilcoxon_p": 9.5367431640625e-07
+          },
+          "state_scrambled_mlp": {
+            "ci_hi": 0.005669142106035141,
+            "ci_lo": -0.009768895584301107,
+            "holm_p": 1.0,
+            "median_diff": -0.0016073742594671092,
+            "wilcoxon_p": 0.7509956359863281
+          },
+          "static_full_global": {
+            "ci_hi": -0.020868577175169323,
+            "ci_lo": -0.03400759908358175,
+            "holm_p": 1.0,
+            "median_diff": -0.02880642247078896,
+            "wilcoxon_p": 1.0
+          }
+        }
+      },
+      "final_hv": {
+        "arms": {
+          "fixed_nsga2": {
+            "failure_rate": 0.15,
+            "mean": 0.8459903580547344,
+            "median": 0.8460896475004356,
+            "n": 20,
+            "std": 0.005675856901002264
+          },
+          "generation_only_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.8676902196673119,
+            "median": 0.8676834584246169,
+            "n": 20,
+            "std": 0.0005751952703081881
+          },
+          "mlp2_closed_loop_absolute": {
+            "failure_rate": 0.0,
+            "mean": 0.8613378258081891,
+            "median": 0.8609434182279719,
+            "n": 20,
+            "std": 0.0016186211552436628
+          },
+          "mlp2_closed_loop_normalized": {
+            "failure_rate": 0.0,
+            "mean": 0.8615248820325782,
+            "median": 0.8618800651035354,
+            "n": 20,
+            "std": 0.002379464289371024
+          },
+          "open_loop_global": {
+            "failure_rate": 0.0,
+            "mean": 0.8641194020640389,
+            "median": 0.8642804495861622,
+            "n": 20,
+            "std": 0.0013882996593881124
+          },
+          "open_loop_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.8650085617450977,
+            "median": 0.8650044562957369,
+            "n": 20,
+            "std": 0.0008613359217658635
+          },
+          "state_scrambled_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.8658507441832975,
+            "median": 0.865783403557255,
+            "n": 20,
+            "std": 0.0011807171435209865
+          },
+          "static_full_global": {
+            "failure_rate": 0.0,
+            "mean": 0.8674083463581036,
+            "median": 0.8674851080166275,
+            "n": 20,
+            "std": 0.0008286804280328098
+          },
+          "static_full_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.863580680393019,
+            "median": 0.8635171402322834,
+            "n": 20,
+            "std": 0.0010540174689115925
+          }
+        },
+        "comparisons": {
+          "generation_only_mlp": {
+            "ci_hi": -0.004781403083417235,
+            "ci_lo": -0.0072721190942874325,
+            "holm_p": 1.0,
+            "median_diff": -0.0056281970954439875,
+            "wilcoxon_p": 1.0
+          },
+          "open_loop_global": {
+            "ci_hi": -0.0015126684067114926,
+            "ci_lo": -0.0038414565539818812,
+            "holm_p": 1.0,
+            "median_diff": -0.002187084670661421,
+            "wilcoxon_p": 0.9998693466186523
+          },
+          "state_scrambled_mlp": {
+            "ci_hi": -0.0026618484347877835,
+            "ci_lo": -0.005163662589776852,
+            "holm_p": 1.0,
+            "median_diff": -0.004036097194041743,
+            "wilcoxon_p": 1.0
+          },
+          "static_full_global": {
+            "ci_hi": -0.004448781777033839,
+            "ci_lo": -0.006796685023949922,
+            "holm_p": 1.0,
+            "median_diff": -0.005448875381217078,
+            "wilcoxon_p": 1.0
+          }
+        }
+      }
+    },
+    "zdt2": {
+      "auc_hv": {
+        "arms": {
+          "fixed_nsga2": {
+            "failure_rate": 0.25,
+            "mean": 0.09398357231154694,
+            "median": 0.06008302411592749,
+            "n": 20,
+            "std": 0.07797015668260393
+          },
+          "generation_only_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.3476548068246938,
+            "median": 0.3473888800524881,
+            "n": 20,
+            "std": 0.008444724253140311
+          },
+          "mlp2_closed_loop_absolute": {
+            "failure_rate": 0.0,
+            "mean": 0.3219062334587759,
+            "median": 0.32063685016456484,
+            "n": 20,
+            "std": 0.013724786300238706
+          },
+          "mlp2_closed_loop_normalized": {
+            "failure_rate": 0.0,
+            "mean": 0.31802464827808535,
+            "median": 0.3167403818543704,
+            "n": 20,
+            "std": 0.010726197452118006
+          },
+          "open_loop_global": {
+            "failure_rate": 0.0,
+            "mean": 0.2223947961562726,
+            "median": 0.2436109627051155,
+            "n": 20,
+            "std": 0.05932818508332402
+          },
+          "open_loop_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.23933756392624309,
+            "median": 0.24306215843336237,
+            "n": 20,
+            "std": 0.04198350764888844
+          },
+          "state_scrambled_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.30628215143135334,
+            "median": 0.3081313197948202,
+            "n": 20,
+            "std": 0.012527686320149537
+          },
+          "static_full_global": {
+            "failure_rate": 0.0,
+            "mean": 0.35755005498742837,
+            "median": 0.3591382190971083,
+            "n": 20,
+            "std": 0.009529032994328376
+          },
+          "static_full_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.35755005498742837,
+            "median": 0.3591382190971083,
+            "n": 20,
+            "std": 0.009529032994328376
+          }
+        },
+        "comparisons": {
+          "generation_only_mlp": {
+            "ci_hi": -0.022343451594038555,
+            "ci_lo": -0.038237687658302794,
+            "holm_p": 1.0,
+            "median_diff": -0.0311409890309593,
+            "wilcoxon_p": 1.0
+          },
+          "open_loop_global": {
+            "ci_hi": 0.1412264107891144,
+            "ci_lo": 0.047944555809422806,
+            "holm_p": 4.76837158203125e-06,
+            "median_diff": 0.07968507504597172,
+            "wilcoxon_p": 9.5367431640625e-07
+          },
+          "state_scrambled_mlp": {
+            "ci_hi": 0.014404968730589274,
+            "ci_lo": 0.0012186741398058365,
+            "holm_p": 0.003971099853515625,
+            "median_diff": 0.013169558608932985,
+            "wilcoxon_p": 0.0009927749633789062
+          },
+          "static_full_global": {
+            "ci_hi": -0.034395139023651045,
+            "ci_lo": -0.0450966029871242,
+            "holm_p": 1.0,
+            "median_diff": -0.04009490265333257,
+            "wilcoxon_p": 1.0
+          }
+        }
+      },
+      "final_hv": {
+        "arms": {
+          "fixed_nsga2": {
+            "failure_rate": 0.25,
+            "mean": 0.3347636536002421,
+            "median": 0.30396007006523174,
+            "n": 20,
+            "std": 0.1363842221473937
+          },
+          "generation_only_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.5337710423854286,
+            "median": 0.5339058781654082,
+            "n": 20,
+            "std": 0.0009068844808026154
+          },
+          "mlp2_closed_loop_absolute": {
+            "failure_rate": 0.0,
+            "mean": 0.5294407003777172,
+            "median": 0.5298515039861403,
+            "n": 20,
+            "std": 0.0018057052040536896
+          },
+          "mlp2_closed_loop_normalized": {
+            "failure_rate": 0.0,
+            "mean": 0.5293487534962256,
+            "median": 0.52936657840862,
+            "n": 20,
+            "std": 0.0018136323363395841
+          },
+          "open_loop_global": {
+            "failure_rate": 0.0,
+            "mean": 0.5205400174580457,
+            "median": 0.5284265621636972,
+            "n": 20,
+            "std": 0.025624470988100646
+          },
+          "open_loop_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.5284182131825691,
+            "median": 0.5309805008884017,
+            "n": 20,
+            "std": 0.007000588402819777
+          },
+          "state_scrambled_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.5299203850871023,
+            "median": 0.5300272885343132,
+            "n": 20,
+            "std": 0.0018746438613645713
+          },
+          "static_full_global": {
+            "failure_rate": 0.0,
+            "mean": 0.5340078653020038,
+            "median": 0.5342009997609614,
+            "n": 20,
+            "std": 0.0007522722707507858
+          },
+          "static_full_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.5340078653020038,
+            "median": 0.5342009997609614,
+            "n": 20,
+            "std": 0.0007522722707507858
+          }
+        },
+        "comparisons": {
+          "generation_only_mlp": {
+            "ci_hi": -0.003500376480191414,
+            "ci_lo": -0.005597001845182414,
+            "holm_p": 1.0,
+            "median_diff": -0.004393275687800846,
+            "wilcoxon_p": 1.0
+          },
+          "open_loop_global": {
+            "ci_hi": 0.00503386277865675,
+            "ci_lo": -0.0011325007806968213,
+            "holm_p": 0.19461441040039062,
+            "median_diff": 0.0009942231061556006,
+            "wilcoxon_p": 0.048653602600097656
+          },
+          "state_scrambled_mlp": {
+            "ci_hi": 0.001527639576629436,
+            "ci_lo": -0.002615945907363748,
+            "holm_p": 1.0,
+            "median_diff": -0.0010322736155094492,
+            "wilcoxon_p": 0.8255949020385742
+          },
+          "static_full_global": {
+            "ci_hi": -0.0036552201341260027,
+            "ci_lo": -0.0056503541363128185,
+            "holm_p": 1.0,
+            "median_diff": -0.004879264822881202,
+            "wilcoxon_p": 1.0
+          }
+        }
+      }
+    },
+    "zdt3": {
+      "auc_hv": {
+        "arms": {
+          "fixed_nsga2": {
+            "failure_rate": 0.0,
+            "mean": 0.9207123252354712,
+            "median": 0.9246922149701583,
+            "n": 20,
+            "std": 0.03514370387234393
+          },
+          "generation_only_mlp": {
+            "failure_rate": 0.0,
+            "mean": 1.0403284739130694,
+            "median": 1.041812372577393,
+            "n": 20,
+            "std": 0.0165880772644863
+          },
+          "mlp2_closed_loop_absolute": {
+            "failure_rate": 0.0,
+            "mean": 1.0107410844509894,
+            "median": 1.0103236436701697,
+            "n": 20,
+            "std": 0.016757612366845552
+          },
+          "mlp2_closed_loop_normalized": {
+            "failure_rate": 0.0,
+            "mean": 1.0072608444338722,
+            "median": 1.009234712320874,
+            "n": 20,
+            "std": 0.02269172414165153
+          },
+          "open_loop_global": {
+            "failure_rate": 0.0,
+            "mean": 0.9682819870211745,
+            "median": 0.9668822334512177,
+            "n": 20,
+            "std": 0.021385453444500626
+          },
+          "open_loop_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.9665298501378577,
+            "median": 0.9703920079648998,
+            "n": 20,
+            "std": 0.02153304561118936
+          },
+          "state_scrambled_mlp": {
+            "failure_rate": 0.0,
+            "mean": 1.0107308208290837,
+            "median": 1.0084270692369577,
+            "n": 20,
+            "std": 0.01725765407450461
+          },
+          "static_full_global": {
+            "failure_rate": 0.0,
+            "mean": 1.0501037958647603,
+            "median": 1.0505484560678076,
+            "n": 20,
+            "std": 0.012673787716649381
+          },
+          "static_full_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 1.0501037958647603,
+            "median": 1.0505484560678076,
+            "n": 20,
+            "std": 0.012673787716649381
+          }
+        },
+        "comparisons": {
+          "generation_only_mlp": {
+            "ci_hi": -0.02466514193899555,
+            "ci_lo": -0.03778292806239281,
+            "holm_p": 1.0,
+            "median_diff": -0.0330703278914557,
+            "wilcoxon_p": 0.9999971389770508
+          },
+          "open_loop_global": {
+            "ci_hi": 0.05147536759754784,
+            "ci_lo": 0.0275780618885213,
+            "holm_p": 2.002716064453125e-05,
+            "median_diff": 0.04336885973972887,
+            "wilcoxon_p": 6.67572021484375e-06
+          },
+          "state_scrambled_mlp": {
+            "ci_hi": 0.012658360673279467,
+            "ci_lo": -0.018187784716126476,
+            "holm_p": 1.0,
+            "median_diff": -0.0023658688732758337,
+            "wilcoxon_p": 0.7391633987426758
+          },
+          "static_full_global": {
+            "ci_hi": -0.027906427385905874,
+            "ci_lo": -0.05004261638280022,
+            "holm_p": 1.0,
+            "median_diff": -0.03801545724577249,
+            "wilcoxon_p": 1.0
+          }
+        }
+      },
+      "final_hv": {
+        "arms": {
+          "fixed_nsga2": {
+            "failure_rate": 0.0,
+            "mean": 1.2936154942440579,
+            "median": 1.2933009086148015,
+            "n": 20,
+            "std": 0.006674692920673237
+          },
+          "generation_only_mlp": {
+            "failure_rate": 0.0,
+            "mean": 1.3244862694354633,
+            "median": 1.3245201670396747,
+            "n": 20,
+            "std": 0.0007660418377767029
+          },
+          "mlp2_closed_loop_absolute": {
+            "failure_rate": 0.0,
+            "mean": 1.3205202752233176,
+            "median": 1.32056935648964,
+            "n": 20,
+            "std": 0.0017321845798460604
+          },
+          "mlp2_closed_loop_normalized": {
+            "failure_rate": 0.0,
+            "mean": 1.3173297930549714,
+            "median": 1.317383780110669,
+            "n": 20,
+            "std": 0.0028532964388335432
+          },
+          "open_loop_global": {
+            "failure_rate": 0.0,
+            "mean": 1.3196345723348524,
+            "median": 1.3198595683658048,
+            "n": 20,
+            "std": 0.0020394447495311434
+          },
+          "open_loop_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 1.3194285177287775,
+            "median": 1.319680716031857,
+            "n": 20,
+            "std": 0.0019468586486660713
+          },
+          "state_scrambled_mlp": {
+            "failure_rate": 0.0,
+            "mean": 1.3227173169299156,
+            "median": 1.3224252610857592,
+            "n": 20,
+            "std": 0.0017381326336519543
+          },
+          "static_full_global": {
+            "failure_rate": 0.0,
+            "mean": 1.3234548441250649,
+            "median": 1.3238147044387731,
+            "n": 20,
+            "std": 0.0011765028907462375
+          },
+          "static_full_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 1.3234548441250649,
+            "median": 1.3238147044387731,
+            "n": 20,
+            "std": 0.0011765028907462375
+          }
+        },
+        "comparisons": {
+          "generation_only_mlp": {
+            "ci_hi": -0.005674359984489619,
+            "ci_lo": -0.00935464108605577,
+            "holm_p": 1.0,
+            "median_diff": -0.006926063387463266,
+            "wilcoxon_p": 1.0
+          },
+          "open_loop_global": {
+            "ci_hi": -0.0003470859110921154,
+            "ci_lo": -0.0035805144475578032,
+            "holm_p": 1.0,
+            "median_diff": -0.0015839749614371401,
+            "wilcoxon_p": 0.9972095489501953
+          },
+          "state_scrambled_mlp": {
+            "ci_hi": -0.004197081972128203,
+            "ci_lo": -0.0073813089119281194,
+            "holm_p": 1.0,
+            "median_diff": -0.005369408826659039,
+            "wilcoxon_p": 0.999995231628418
+          },
+          "static_full_global": {
+            "ci_hi": -0.0040227961724755845,
+            "ci_lo": -0.008209298058536985,
+            "holm_p": 1.0,
+            "median_diff": -0.005929456221597573,
+            "wilcoxon_p": 1.0
+          }
+        }
+      }
+    },
+    "zdt4": {
+      "auc_hv": {
+        "arms": {
+          "fixed_nsga2": {
+            "failure_rate": 0.5,
+            "mean": 0.03020479810719116,
+            "median": 0.010250995454541435,
+            "n": 20,
+            "std": 0.03720927927642249
+          },
+          "generation_only_mlp": {
+            "failure_rate": 0.05,
+            "mean": 0.09076581372934428,
+            "median": 0.0709091044949949,
+            "n": 20,
+            "std": 0.05386975687858208
+          },
+          "mlp2_closed_loop_absolute": {
+            "failure_rate": 0.15,
+            "mean": 0.08395590614685043,
+            "median": 0.07045565014593264,
+            "n": 20,
+            "std": 0.04143270576008851
+          },
+          "mlp2_closed_loop_normalized": {
+            "failure_rate": 0.15,
+            "mean": 0.10307896145937649,
+            "median": 0.0718056597240457,
+            "n": 20,
+            "std": 0.07594633726950802
+          },
+          "open_loop_global": {
+            "failure_rate": 0.2,
+            "mean": 0.04871093588910287,
+            "median": 0.04433066323910269,
+            "n": 20,
+            "std": 0.030665741235124066
+          },
+          "open_loop_per_problem": {
+            "failure_rate": 0.8,
+            "mean": 0.006035692336061301,
+            "median": 0.0002190578174933562,
+            "n": 20,
+            "std": 0.010110908603672837
+          },
+          "state_scrambled_mlp": {
+            "failure_rate": 0.3,
+            "mean": 0.04718297103724827,
+            "median": 0.04265683045353743,
+            "n": 20,
+            "std": 0.03333411349211486
+          },
+          "static_full_global": {
+            "failure_rate": 1.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "n": 20,
+            "std": 0.0
+          },
+          "static_full_per_problem": {
+            "failure_rate": 0.3,
+            "mean": 0.05814332519055391,
+            "median": 0.04675660062139892,
+            "n": 20,
+            "std": 0.05540570656100315
+          }
+        },
+        "comparisons": {
+          "generation_only_mlp": {
+            "ci_hi": 0.0730579867166734,
+            "ci_lo": -0.035788825507506984,
+            "holm_p": 1.0,
+            "median_diff": 0.011471008524239145,
+            "wilcoxon_p": 0.22618770599365234
+          },
+          "open_loop_global": {
+            "ci_hi": 0.12377774475331324,
+            "ci_lo": 0.00481990811298956,
+            "holm_p": 0.002429962158203125,
+            "median_diff": 0.03558208082389727,
+            "wilcoxon_p": 0.002429962158203125
+          },
+          "state_scrambled_mlp": {
+            "ci_hi": 0.0948874952656345,
+            "ci_lo": -0.0007223299300729933,
+            "holm_p": 0.012462615966796875,
+            "median_diff": 0.042765695187872085,
+            "wilcoxon_p": 0.004154205322265625
+          },
+          "static_full_global": {
+            "ci_hi": 0.16647458154785116,
+            "ci_lo": 0.04157063613979857,
+            "holm_p": 4.76837158203125e-06,
+            "median_diff": 0.0718056597240457,
+            "wilcoxon_p": 9.5367431640625e-07
+          }
+        }
+      },
+      "final_hv": {
+        "arms": {
+          "fixed_nsga2": {
+            "failure_rate": 0.5,
+            "mean": 0.24495796870673683,
+            "median": 0.19950381621822488,
+            "n": 20,
+            "std": 0.20552581781420778
+          },
+          "generation_only_mlp": {
+            "failure_rate": 0.05,
+            "mean": 0.4075670295463703,
+            "median": 0.36182518332924574,
+            "n": 20,
+            "std": 0.17604725271025412
+          },
+          "mlp2_closed_loop_absolute": {
+            "failure_rate": 0.15,
+            "mean": 0.35773022758731915,
+            "median": 0.33369987629770576,
+            "n": 20,
+            "std": 0.13212356285197377
+          },
+          "mlp2_closed_loop_normalized": {
+            "failure_rate": 0.15,
+            "mean": 0.43156703612452424,
+            "median": 0.39370254037521824,
+            "n": 20,
+            "std": 0.20821139221087803
+          },
+          "open_loop_global": {
+            "failure_rate": 0.2,
+            "mean": 0.36992050181800523,
+            "median": 0.348606595521357,
+            "n": 20,
+            "std": 0.19686589643189414
+          },
+          "open_loop_per_problem": {
+            "failure_rate": 0.8,
+            "mean": 0.08915437817931329,
+            "median": 0.008762312699734248,
+            "n": 20,
+            "std": 0.13058149707911992
+          },
+          "state_scrambled_mlp": {
+            "failure_rate": 0.3,
+            "mean": 0.32108890264750395,
+            "median": 0.33295726618710103,
+            "n": 20,
+            "std": 0.1526706829449743
+          },
+          "static_full_global": {
+            "failure_rate": 1.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "n": 20,
+            "std": 0.0
+          },
+          "static_full_per_problem": {
+            "failure_rate": 0.3,
+            "mean": 0.34406233583391765,
+            "median": 0.31373027786228425,
+            "n": 20,
+            "std": 0.23378245408388723
+          }
+        },
+        "comparisons": {
+          "generation_only_mlp": {
+            "ci_hi": 0.19155282545943325,
+            "ci_lo": -0.1060587523719695,
+            "holm_p": 1.0,
+            "median_diff": 0.045462840360555604,
+            "wilcoxon_p": 0.2608366012573242
+          },
+          "open_loop_global": {
+            "ci_hi": 0.22726134407766038,
+            "ci_lo": 0.00037974212945604546,
+            "holm_p": 0.30367469787597656,
+            "median_diff": 0.07670527151998714,
+            "wilcoxon_p": 0.10122489929199219
+          },
+          "state_scrambled_mlp": {
+            "ci_hi": 0.24453395537723507,
+            "ci_lo": 0.02441251635746109,
+            "holm_p": 0.16510009765625,
+            "median_diff": 0.11609639776580673,
+            "wilcoxon_p": 0.0412750244140625
+          },
+          "static_full_global": {
+            "ci_hi": 0.6112754390602724,
+            "ci_lo": 0.2760355164423415,
+            "holm_p": 4.76837158203125e-06,
+            "median_diff": 0.39370254037521824,
+            "wilcoxon_p": 9.5367431640625e-07
+          }
+        }
+      }
+    },
+    "zdt6": {
+      "auc_hv": {
+        "arms": {
+          "fixed_nsga2": {
+            "failure_rate": 0.15,
+            "mean": 0.04481229125638679,
+            "median": 0.0452855787569878,
+            "n": 20,
+            "std": 0.010872267898795522
+          },
+          "generation_only_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.287825322976745,
+            "median": 0.28830670299305605,
+            "n": 20,
+            "std": 0.022572547056168128
+          },
+          "mlp2_closed_loop_absolute": {
+            "failure_rate": 0.0,
+            "mean": 0.25780129560721116,
+            "median": 0.25158524707789276,
+            "n": 20,
+            "std": 0.01573509137523014
+          },
+          "mlp2_closed_loop_normalized": {
+            "failure_rate": 0.0,
+            "mean": 0.2576507828880674,
+            "median": 0.25594838084100624,
+            "n": 20,
+            "std": 0.01655322142374509
+          },
+          "open_loop_global": {
+            "failure_rate": 0.0,
+            "mean": 0.22725781557265973,
+            "median": 0.23159267225662447,
+            "n": 20,
+            "std": 0.018046331191234048
+          },
+          "open_loop_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.18287933773901716,
+            "median": 0.17994330220859245,
+            "n": 20,
+            "std": 0.019087541128278967
+          },
+          "state_scrambled_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.2228993036104742,
+            "median": 0.22154799515641613,
+            "n": 20,
+            "std": 0.029510979532609526
+          },
+          "static_full_global": {
+            "failure_rate": 0.0,
+            "mean": 0.31729832217249193,
+            "median": 0.3125070274159509,
+            "n": 20,
+            "std": 0.027280937319180097
+          },
+          "static_full_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.26961724306385243,
+            "median": 0.2794142134153762,
+            "n": 20,
+            "std": 0.02996367480973053
+          }
+        },
+        "comparisons": {
+          "generation_only_mlp": {
+            "ci_hi": -0.01357909076087957,
+            "ci_lo": -0.045569444375743756,
+            "holm_p": 1.0,
+            "median_diff": -0.02633456290516481,
+            "wilcoxon_p": 0.9999904632568359
+          },
+          "open_loop_global": {
+            "ci_hi": 0.04952257290726397,
+            "ci_lo": 0.011750431469392128,
+            "holm_p": 2.6702880859375e-05,
+            "median_diff": 0.028435433501244,
+            "wilcoxon_p": 1.33514404296875e-05
+          },
+          "state_scrambled_mlp": {
+            "ci_hi": 0.0486533016006602,
+            "ci_lo": 0.02718846333198713,
+            "holm_p": 0.00041961669921875,
+            "median_diff": 0.04130979829699638,
+            "wilcoxon_p": 8.392333984375e-05
+          },
+          "static_full_global": {
+            "ci_hi": -0.04222817777240048,
+            "ci_lo": -0.06801022930950888,
+            "holm_p": 1.0,
+            "median_diff": -0.05429770427194838,
+            "wilcoxon_p": 1.0
+          }
+        }
+      },
+      "final_hv": {
+        "arms": {
+          "fixed_nsga2": {
+            "failure_rate": 0.15,
+            "mean": 0.26819077956129717,
+            "median": 0.2713116582137488,
+            "n": 20,
+            "std": 0.03112465063598961
+          },
+          "generation_only_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.5019531598140679,
+            "median": 0.5019365496902015,
+            "n": 20,
+            "std": 0.0005743541365823657
+          },
+          "mlp2_closed_loop_absolute": {
+            "failure_rate": 0.0,
+            "mean": 0.5007856674204547,
+            "median": 0.5011287330011708,
+            "n": 20,
+            "std": 0.0012898323195792924
+          },
+          "mlp2_closed_loop_normalized": {
+            "failure_rate": 0.0,
+            "mean": 0.5001587778688099,
+            "median": 0.5012370810697646,
+            "n": 20,
+            "std": 0.002632504775789001
+          },
+          "open_loop_global": {
+            "failure_rate": 0.0,
+            "mean": 0.4973598535030292,
+            "median": 0.49766768150430124,
+            "n": 20,
+            "std": 0.001955395263221116
+          },
+          "open_loop_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.4882912629121252,
+            "median": 0.488256730194799,
+            "n": 20,
+            "std": 0.006025779504642538
+          },
+          "state_scrambled_mlp": {
+            "failure_rate": 0.0,
+            "mean": 0.49170516393982416,
+            "median": 0.49422202182489017,
+            "n": 20,
+            "std": 0.007314130504104147
+          },
+          "static_full_global": {
+            "failure_rate": 0.0,
+            "mean": 0.5028081004771665,
+            "median": 0.5026934270178871,
+            "n": 20,
+            "std": 0.0002725567813522784
+          },
+          "static_full_per_problem": {
+            "failure_rate": 0.0,
+            "mean": 0.5007934412598076,
+            "median": 0.5013415667497547,
+            "n": 20,
+            "std": 0.0019924452014859276
+          }
+        },
+        "comparisons": {
+          "generation_only_mlp": {
+            "ci_hi": -0.00044467033493567065,
+            "ci_lo": -0.0018412813931926453,
+            "holm_p": 1.0,
+            "median_diff": -0.0007408740067382236,
+            "wilcoxon_p": 0.9999933242797852
+          },
+          "open_loop_global": {
+            "ci_hi": 0.004234198842074599,
+            "ci_lo": 0.0019370782118079966,
+            "holm_p": 0.0030231475830078125,
+            "median_diff": 0.003592761209620099,
+            "wilcoxon_p": 0.0006046295166015625
+          },
+          "state_scrambled_mlp": {
+            "ci_hi": 0.011262227080240689,
+            "ci_lo": 0.003991485332468986,
+            "holm_p": 0.00015735626220703125,
+            "median_diff": 0.006946344673315924,
+            "wilcoxon_p": 3.147125244140625e-05
+          },
+          "static_full_global": {
+            "ci_hi": -0.0008984650251387394,
+            "ci_lo": -0.003371667860796762,
+            "holm_p": 1.0,
+            "median_diff": -0.0016215081332101589,
+            "wilcoxon_p": 1.0
+          }
+        }
+      }
+    }
+  }
+}

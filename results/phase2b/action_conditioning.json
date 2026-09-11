@@ -1,0 +1,121 @@
+{
+  "d1_action_ablation": {
+    "zero": {
+      "r2": 0.9707970382623905,
+      "mse": 0.0055984432516136984
+    },
+    "mean": {
+      "r2": 0.9927473370153919,
+      "mse": 0.0013903939780914787
+    },
+    "shuffled": {
+      "r2": 0.99227816703587,
+      "mse": 0.0014803376464534045
+    },
+    "baseline": {
+      "r2": 0.9922880771747904,
+      "mse": 0.0014784377929091153
+    }
+  },
+  "d2_within_state_ranking": {
+    "n_groups": 340,
+    "spearman_mean": 0.6413685238634298,
+    "spearman_std": 0.33307327497180256,
+    "kendall_mean": 0.5375396719294804,
+    "significant_fraction": 0.6294117647058823,
+    "strict_version": {
+      "available": true,
+      "horizon": 5,
+      "n_candidates": 8,
+      "n_reps": 3,
+      "n_snapshots": 20,
+      "n_states": 20,
+      "n_states_scored": 14,
+      "n_states_excluded_degenerate": 6,
+      "spearman_mean": -0.2157427231342803,
+      "spearman_std": 0.45676674064984635,
+      "kendall_mean": -0.13871620732667972,
+      "significant_fraction": 0.07142857142857142,
+      "spearman_mean_horizon_column": -0.1815713383615308,
+      "kendall_mean_horizon_column": -0.12821467403879278,
+      "top1_selection_agreement": 0.14285714285714285
+    }
+  },
+  "d3_top1_regret": {
+    "mean": 0.04222063475218336,
+    "median": 0.013565227871090053,
+    "std": 0.053914508884360106,
+    "n_states": 14
+  },
+  "d4_action_effect_snr": {
+    "between_action_var": 0.001024251184359025,
+    "within_action_noise_var": 0.0007570607337302216,
+    "snr": 1.3529313286561453
+  },
+  "d5_pred_vs_actual": {
+    "pearson_r": 0.32367970754967246,
+    "slope": 0.11365233800952702,
+    "intercept": 0.02852790556767727
+  },
+  "conclusion": {
+    "action_information_used": false,
+    "evidence": "D1 baseline R2=0.9923, max ablation drop=-0.0005 (threshold 0.05); D2 strict within-state Spearman mean=-0.2157, significant fraction=0.0714 (thresholds 0.3/0.5); high global R2 is therefore not backed by action-conditional evidence."
+  },
+  "config": {
+    "model_dir": "results\\phase2_outcome",
+    "eval_dir": "results/trajectory_full",
+    "snapshots_dir": "results/phase1_75/snapshots",
+    "problems": [
+      "zdt1",
+      "zdt2",
+      "zdt3",
+      "zdt4",
+      "zdt6"
+    ],
+    "window": 10,
+    "horizons": [
+      1,
+      5,
+      10,
+      20
+    ],
+    "horizon_weights": [
+      0.1,
+      0.2,
+      0.3,
+      0.4
+    ],
+    "n_samples": 4050,
+    "n_trajectories": 50,
+    "n_action_features": 4,
+    "ablation_variants": [
+      "zero",
+      "mean",
+      "shuffled"
+    ],
+    "multiplier_normalization": true,
+    "strict_enabled": true,
+    "strict_states_per_problem": 4,
+    "strict_candidates": 8,
+    "strict_horizon": 5,
+    "strict_reps": 3,
+    "pm_mult_range": [
+      0.25,
+      8.0
+    ],
+    "ref_point": [
+      1.1,
+      1.1
+    ],
+    "n_reference_points": 200,
+    "seed": 0,
+    "alpha": 0.05,
+    "conclusion_thresholds": {
+      "ablation_r2_drop": 0.05,
+      "strict_spearman": 0.3,
+      "strict_significant_fraction": 0.5
+    },
+    "d2_approximate_note": "top-level D2 ranks samples inside (problem, generation) groups; the state differs inside a group, so it is a checksum, not the causal test -- strict_version holds the fixed-state evidence",
+    "timestamp_utc": "2026-09-11T04:53:45.220079+00:00"
+  }
+}

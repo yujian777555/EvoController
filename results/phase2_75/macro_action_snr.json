@@ -1,0 +1,123 @@
+{
+  "continuous_snr": 7.421192438512717,
+  "macro_snr": 6.4488532179212275,
+  "macro_assignment": {
+    "zdt1|seed1000|gen2|cand0": "operator_switch_gaussian",
+    "zdt1|seed1000|gen2|cand1": "explore_high",
+    "zdt1|seed1000|gen2|cand2": "operator_switch_gaussian",
+    "zdt1|seed1000|gen2|cand3": "operator_switch_gaussian",
+    "zdt1|seed1000|gen2|cand4": "explore_mild",
+    "zdt1|seed1004|gen98|cand0": "operator_switch_gaussian",
+    "zdt1|seed1004|gen98|cand1": "operator_switch_gaussian",
+    "zdt1|seed1004|gen98|cand2": "neutral",
+    "zdt1|seed1004|gen98|cand3": "operator_switch_gaussian",
+    "zdt1|seed1004|gen98|cand4": "explore_high"
+  },
+  "macro_snr_within_as_noise": 0.3447669196293667,
+  "variance_explained_by_macro": 0.3059087065645537,
+  "n_states": 4,
+  "n_candidates": 20,
+  "files": [
+    "counterfactual_horizon_zdt1.json"
+  ],
+  "per_horizon": {
+    "2": {
+      "continuous_snr": 4.198382767550675,
+      "macro_snr": 3.5871935181887187,
+      "macro_snr_within_as_noise": 0.29527919209426423,
+      "variance_explained_by_macro": 0.29583873371752273,
+      "between_macro_var_pooled": 1.297713085283894e-07,
+      "within_macro_var_pooled": 3.088842620173514e-07,
+      "replicate_noise_var_pooled": 1.3060254234562422e-07,
+      "candidate_var_pooled": 4.386555705457408e-07,
+      "n_states": 2,
+      "n_candidates": 10,
+      "n_states_with_defined_snr": 1,
+      "macro_counts": {
+        "explore_high": 2,
+        "explore_mild": 1,
+        "neutral": 1,
+        "exploit_mild": 0,
+        "exploit_high": 0,
+        "operator_switch_gaussian": 6,
+        "gaussian_explore": 0
+      }
+    },
+    "4": {
+      "continuous_snr": 10.644002109474759,
+      "macro_snr": 9.310512917653737,
+      "macro_snr_within_as_noise": 0.3942546471644692,
+      "variance_explained_by_macro": 0.31597867941158475,
+      "between_macro_var_pooled": 4.096121863260451e-07,
+      "within_macro_var_pooled": 8.867163732110242e-07,
+      "replicate_noise_var_pooled": 1.5223697653901514e-07,
+      "candidate_var_pooled": 1.2963285595370692e-06,
+      "n_states": 2,
+      "n_candidates": 10,
+      "n_states_with_defined_snr": 1,
+      "macro_counts": {
+        "explore_high": 2,
+        "explore_mild": 1,
+        "neutral": 1,
+        "exploit_mild": 0,
+        "exploit_high": 0,
+        "operator_switch_gaussian": 6,
+        "gaussian_explore": 0
+      }
+    }
+  },
+  "macro_actions": {
+    "explore_high": {
+      "mutation_operator": "polynomial",
+      "multiplier": 6.0,
+      "exploration_strength": 4.0
+    },
+    "explore_mild": {
+      "mutation_operator": "polynomial",
+      "multiplier": 3.0,
+      "exploration_strength": 12.0
+    },
+    "neutral": {
+      "mutation_operator": "polynomial",
+      "multiplier": 1.0,
+      "exploration_strength": 20.0
+    },
+    "exploit_mild": {
+      "mutation_operator": "polynomial",
+      "multiplier": 0.5,
+      "exploration_strength": 32.0
+    },
+    "exploit_high": {
+      "mutation_operator": "polynomial",
+      "multiplier": 0.25,
+      "exploration_strength": 50.0
+    },
+    "operator_switch_gaussian": {
+      "mutation_operator": "gaussian",
+      "multiplier": 1.0,
+      "exploration_strength": 0.12
+    },
+    "gaussian_explore": {
+      "mutation_operator": "gaussian",
+      "multiplier": 2.0,
+      "exploration_strength": 0.25
+    }
+  },
+  "macro_counts": {
+    "explore_high": 4,
+    "explore_mild": 2,
+    "neutral": 2,
+    "exploit_mild": 0,
+    "exploit_high": 0,
+    "operator_switch_gaussian": 12,
+    "gaussian_explore": 0
+  },
+  "definitions": {
+    "continuous_snr": "per state: var(candidate mean reward, ddof=1) / mean(per-candidate replicate variance, ddof=1); averaged over states and horizons (Phase-2B D4 statistic)",
+    "macro_snr": "same ratio with the per-macro mean rewards in the numerator; bounded above by continuous_snr up to the noise term because macro means average their members (law of total variance)",
+    "macro_snr_within_as_noise": "pooled state-centred between-macro variance / (within-macro variance + replicate noise); the decision-relevant macro SNR, comparable to continuous_snr",
+    "variance_explained_by_macro": "pooled between-macro variance / (between + within); how homogeneous the macro regions are",
+    "assignment_rule": "nearest macro inside the same mutation-operator family; distance = hypot(normalized log-multiplier distance, normalized exploration distance)",
+    "n_states": "sum over horizons of the per-horizon state counts (a state observed at three horizons counts three times); per_horizon[h].n_states is the count for one horizon"
+  }
+}

@@ -1,0 +1,1880 @@
+{
+  "config": {
+    "phase": "2B",
+    "problem": "zdt1",
+    "n_vars": 30,
+    "algorithm": "nsga2",
+    "arm": "planning_predictor",
+    "seed": 1007,
+    "pop_size": 100,
+    "generations": 100,
+    "action_space": "full",
+    "controller": {
+      "name": "planning_predictor",
+      "n_candidates": 16,
+      "candidate_seed": 0,
+      "horizon_weights": [
+        0.1,
+        0.2,
+        0.3,
+        0.4
+      ],
+      "pm_mult_range": [
+        0.25,
+        8.0
+      ],
+      "predictor_dir": "results/phase2_outcome"
+    },
+    "pm_mult_range": [
+      0.25,
+      8.0
+    ],
+    "pm_absolute_range": [
+      0.008333333333333333,
+      0.26666666666666666
+    ],
+    "failure_threshold": 0.8405278732523382,
+    "protocol": "paired closed-loop evaluation identical to Phase 1.75; the action for the step into generation t is selected by the planning controller from the merged history of generations [0, t); the recorded action is the actual action used (current_action() after the step)",
+    "ref_point": [
+      1.1,
+      1.1
+    ],
+    "n_reference_points": 200,
+    "timestamp_utc": "2026-09-11T03:30:22.195850+00:00"
+  },
+  "seed": 1007,
+  "runtime_sec": 67.54973569999999,
+  "schema_version": 1,
+  "transitions": [
+    {
+      "generation": 0,
+      "state": {
+        "generation": 0,
+        "hv": 0.0,
+        "igd": 2.2741739563304715,
+        "diversity": 0.5780145303273841
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.03333333333333333,
+        "exploration_strength": 20.0
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.0
+      }
+    },
+    {
+      "generation": 1,
+      "state": {
+        "generation": 1,
+        "hv": 0.0,
+        "igd": 2.178742221955812,
+        "diversity": 0.783104787023313
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.011059759762620544,
+        "exploration_strength": 40.41677354946587
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.09543173437465935
+      }
+    },
+    {
+      "generation": 2,
+      "state": {
+        "generation": 2,
+        "hv": 0.0,
+        "igd": 2.178742221955812,
+        "diversity": 0.6141202436069508
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.09607931560604971,
+        "exploration_strength": 44.295456000233635
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.0
+      }
+    },
+    {
+      "generation": 3,
+      "state": {
+        "generation": 3,
+        "hv": 0.0,
+        "igd": 2.1518364145870903,
+        "diversity": 0.6719845540466306
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.020401191426989148,
+        "exploration_strength": 2.166954334369433
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.026905807368721835
+      }
+    },
+    {
+      "generation": 4,
+      "state": {
+        "generation": 4,
+        "hv": 0.0,
+        "igd": 1.779274330365285,
+        "diversity": 0.7375746614348954
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.012451115106816573,
+        "exploration_strength": 36.488523557197986
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.37256208422180537
+      }
+    },
+    {
+      "generation": 5,
+      "state": {
+        "generation": 5,
+        "hv": 0.0,
+        "igd": 1.779274330365285,
+        "diversity": 0.6314952480307874
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.03580162675046574,
+        "exploration_strength": 45.29892046037669
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.0
+      }
+    },
+    {
+      "generation": 6,
+      "state": {
+        "generation": 6,
+        "hv": 0.0,
+        "igd": 1.6641688035485538,
+        "diversity": 0.641495494941607
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.23307023191457707,
+        "exploration_strength": 0.14078415897659025
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.11510552681673114
+      }
+    },
+    {
+      "generation": 7,
+      "state": {
+        "generation": 7,
+        "hv": 0.0,
+        "igd": 1.5462485328850653,
+        "diversity": 0.7117222194270997
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.047128586367306595,
+        "exploration_strength": 47.39747456342371
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.11792027066348854
+      }
+    },
+    {
+      "generation": 8,
+      "state": {
+        "generation": 8,
+        "hv": 0.0,
+        "igd": 1.4330026709407968,
+        "diversity": 0.7060989007566466
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.08070158058711958,
+        "exploration_strength": 13.796275016192453
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.11324586194426844
+      }
+    },
+    {
+      "generation": 9,
+      "state": {
+        "generation": 9,
+        "hv": 0.0,
+        "igd": 1.3557926169601329,
+        "diversity": 0.40903926054189493
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.01175334171614389,
+        "exploration_strength": 7.316195962185209
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.07721005398066394
+      }
+    },
+    {
+      "generation": 10,
+      "state": {
+        "generation": 10,
+        "hv": 0.0,
+        "igd": 1.1228209699477139,
+        "diversity": 0.487085805160478
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.01636167328667455,
+        "exploration_strength": 49.511586244382336
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.23297164701241901
+      }
+    },
+    {
+      "generation": 11,
+      "state": {
+        "generation": 11,
+        "hv": 0.0,
+        "igd": 1.0301989691835198,
+        "diversity": 0.6858472840227955
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.2536086130007999,
+        "exploration_strength": 9.532669226480712
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.09262200076419402
+      }
+    },
+    {
+      "generation": 12,
+      "state": {
+        "generation": 12,
+        "hv": 0.0,
+        "igd": 1.029865717064173,
+        "diversity": 0.5881617700691218
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.045413028017536244,
+        "exploration_strength": 16.97685092605802
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.0003332521193468718
+      }
+    },
+    {
+      "generation": 13,
+      "state": {
+        "generation": 13,
+        "hv": 0.0,
+        "igd": 0.9395456618878544,
+        "diversity": 0.8429699404388299
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.09805856810005731,
+        "exploration_strength": 16.086068968663827
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.09032005517631858
+      }
+    },
+    {
+      "generation": 14,
+      "state": {
+        "generation": 14,
+        "hv": 0.015439070392772638,
+        "igd": 0.8434998319271984,
+        "diversity": 0.8948589709065553
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.008867782536043964,
+        "exploration_strength": 33.48998541517088
+      },
+      "reward": {
+        "delta_hv": 0.015439070392772638,
+        "delta_igd": 0.09604582996065603
+      }
+    },
+    {
+      "generation": 15,
+      "state": {
+        "generation": 15,
+        "hv": 0.015439070392772638,
+        "igd": 0.8210971274471563,
+        "diversity": 0.6782807196922662
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.08312953030841273,
+        "exploration_strength": 30.39416346336901
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.022402704480042
+      }
+    },
+    {
+      "generation": 16,
+      "state": {
+        "generation": 16,
+        "hv": 0.042623918498778335,
+        "igd": 0.7701076568930003,
+        "diversity": 0.7331999748417259
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.009529360132544705,
+        "exploration_strength": 37.428815426063494
+      },
+      "reward": {
+        "delta_hv": 0.027184848106005695,
+        "delta_igd": 0.050989470554156036
+      }
+    },
+    {
+      "generation": 17,
+      "state": {
+        "generation": 17,
+        "hv": 0.05681204897060614,
+        "igd": 0.72885348670953,
+        "diversity": 0.6421386103198683
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.18942137088619115,
+        "exploration_strength": 21.087251520236233
+      },
+      "reward": {
+        "delta_hv": 0.014188130471827806,
+        "delta_igd": 0.04125417018347033
+      }
+    },
+    {
+      "generation": 18,
+      "state": {
+        "generation": 18,
+        "hv": 0.10280523077507275,
+        "igd": 0.6527032566258648,
+        "diversity": 0.8886263728590189
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.011820378153610303,
+        "exploration_strength": 37.66188126863557
+      },
+      "reward": {
+        "delta_hv": 0.04599318180446661,
+        "delta_igd": 0.07615023008366517
+      }
+    },
+    {
+      "generation": 19,
+      "state": {
+        "generation": 19,
+        "hv": 0.1672851970847739,
+        "igd": 0.5602622647962464,
+        "diversity": 0.7234200207444142
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.020372049367996487,
+        "exploration_strength": 17.943121214636054
+      },
+      "reward": {
+        "delta_hv": 0.06447996630970115,
+        "delta_igd": 0.0924409918296184
+      }
+    },
+    {
+      "generation": 20,
+      "state": {
+        "generation": 20,
+        "hv": 0.172571555018058,
+        "igd": 0.5563090963019484,
+        "diversity": 0.6926532304934467
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.06087631818962261,
+        "exploration_strength": 0.07046143113437839
+      },
+      "reward": {
+        "delta_hv": 0.0052863579332840804,
+        "delta_igd": 0.003953168494298054
+      }
+    },
+    {
+      "generation": 21,
+      "state": {
+        "generation": 21,
+        "hv": 0.1786520435559551,
+        "igd": 0.554069006661924,
+        "diversity": 0.6397430469281766
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.10734761278131864,
+        "exploration_strength": 6.196348269322971
+      },
+      "reward": {
+        "delta_hv": 0.006080488537897111,
+        "delta_igd": 0.002240089640024312
+      }
+    },
+    {
+      "generation": 22,
+      "state": {
+        "generation": 22,
+        "hv": 0.19485876543640968,
+        "igd": 0.5266712870640674,
+        "diversity": 0.733473385848323
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.0920571918974476,
+        "exploration_strength": 2.554222046576587
+      },
+      "reward": {
+        "delta_hv": 0.016206721880454578,
+        "delta_igd": 0.02739771959785664
+      }
+    },
+    {
+      "generation": 23,
+      "state": {
+        "generation": 23,
+        "hv": 0.2457347853244993,
+        "igd": 0.46102890598849683,
+        "diversity": 0.6718980132938327
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.10134233598479223,
+        "exploration_strength": 8.523650773573294
+      },
+      "reward": {
+        "delta_hv": 0.050876019888089624,
+        "delta_igd": 0.06564238107557058
+      }
+    },
+    {
+      "generation": 24,
+      "state": {
+        "generation": 24,
+        "hv": 0.2684346841199254,
+        "igd": 0.4481210461935074,
+        "diversity": 0.7261750271368224
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.014676022685188493,
+        "exploration_strength": 2.269066393658834
+      },
+      "reward": {
+        "delta_hv": 0.022699898795426082,
+        "delta_igd": 0.01290785979498943
+      }
+    },
+    {
+      "generation": 25,
+      "state": {
+        "generation": 25,
+        "hv": 0.30956972200039384,
+        "igd": 0.4047422568767509,
+        "diversity": 0.6701004537543968
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.01249164957559409,
+        "exploration_strength": 36.330664147320775
+      },
+      "reward": {
+        "delta_hv": 0.04113503788046846,
+        "delta_igd": 0.04337878931675648
+      }
+    },
+    {
+      "generation": 26,
+      "state": {
+        "generation": 26,
+        "hv": 0.3670054431716736,
+        "igd": 0.3382201550577264,
+        "diversity": 0.7438368815846955
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.26042464397707527,
+        "exploration_strength": 43.176895595553354
+      },
+      "reward": {
+        "delta_hv": 0.05743572117127976,
+        "delta_igd": 0.06652210181902452
+      }
+    },
+    {
+      "generation": 27,
+      "state": {
+        "generation": 27,
+        "hv": 0.3903269115692559,
+        "igd": 0.32355244277476375,
+        "diversity": 0.6741343037142571
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.04693007697144011,
+        "exploration_strength": 0.041366809536799304
+      },
+      "reward": {
+        "delta_hv": 0.023321468397582312,
+        "delta_igd": 0.014667712282962653
+      }
+    },
+    {
+      "generation": 28,
+      "state": {
+        "generation": 28,
+        "hv": 0.3903269115692559,
+        "igd": 0.32355244277476375,
+        "diversity": 0.662194860954637
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.25468637968749486,
+        "exploration_strength": 3.2755329904994936
+      },
+      "reward": {
+        "delta_hv": 0.0,
+        "delta_igd": 0.0
+      }
+    },
+    {
+      "generation": 29,
+      "state": {
+        "generation": 29,
+        "hv": 0.4092977891457652,
+        "igd": 0.31469794269484,
+        "diversity": 0.6697901116347339
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.015128525788565298,
+        "exploration_strength": 31.511553715599455
+      },
+      "reward": {
+        "delta_hv": 0.018970877576509282,
+        "delta_igd": 0.008854500079923722
+      }
+    },
+    {
+      "generation": 30,
+      "state": {
+        "generation": 30,
+        "hv": 0.42488536241190267,
+        "igd": 0.3063874395841222,
+        "diversity": 0.7296113050190641
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.21308102019142247,
+        "exploration_strength": 0.026386940285180308
+      },
+      "reward": {
+        "delta_hv": 0.015587573266137467,
+        "delta_igd": 0.008310503110717848
+      }
+    },
+    {
+      "generation": 31,
+      "state": {
+        "generation": 31,
+        "hv": 0.43880117284417774,
+        "igd": 0.3007746076891117,
+        "diversity": 0.5126042629134373
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.207196339533883,
+        "exploration_strength": 0.02618017408446139
+      },
+      "reward": {
+        "delta_hv": 0.013915810432275078,
+        "delta_igd": 0.005612831895010495
+      }
+    },
+    {
+      "generation": 32,
+      "state": {
+        "generation": 32,
+        "hv": 0.4607138818648378,
+        "igd": 0.2847804275881291,
+        "diversity": 0.6035437815763578
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.17349487261288474,
+        "exploration_strength": 0.08239689953217694
+      },
+      "reward": {
+        "delta_hv": 0.02191270902066006,
+        "delta_igd": 0.01599418010098258
+      }
+    },
+    {
+      "generation": 33,
+      "state": {
+        "generation": 33,
+        "hv": 0.480916619485941,
+        "igd": 0.2641958567058348,
+        "diversity": 0.6388476757410952
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.035405995981573235,
+        "exploration_strength": 4.610890808220225
+      },
+      "reward": {
+        "delta_hv": 0.020202737621103195,
+        "delta_igd": 0.020584570882294317
+      }
+    },
+    {
+      "generation": 34,
+      "state": {
+        "generation": 34,
+        "hv": 0.4980054040311346,
+        "igd": 0.25201084035834187,
+        "diversity": 0.5722740352739322
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.10071288114472401,
+        "exploration_strength": 0.16993872689084585
+      },
+      "reward": {
+        "delta_hv": 0.01708878454519358,
+        "delta_igd": 0.012185016347492916
+      }
+    },
+    {
+      "generation": 35,
+      "state": {
+        "generation": 35,
+        "hv": 0.5063455996460359,
+        "igd": 0.24330203081180848,
+        "diversity": 0.8753411001661665
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.010823881853347126,
+        "exploration_strength": 7.884772253929507
+      },
+      "reward": {
+        "delta_hv": 0.008340195614901291,
+        "delta_igd": 0.008708809546533386
+      }
+    },
+    {
+      "generation": 36,
+      "state": {
+        "generation": 36,
+        "hv": 0.5131434468588295,
+        "igd": 0.24109483170569884,
+        "diversity": 0.8819299363146171
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.1550179031122024,
+        "exploration_strength": 2.982416965573905
+      },
+      "reward": {
+        "delta_hv": 0.00679784721279364,
+        "delta_igd": 0.002207199106109642
+      }
+    },
+    {
+      "generation": 37,
+      "state": {
+        "generation": 37,
+        "hv": 0.5365208111206974,
+        "igd": 0.22221193712109966,
+        "diversity": 0.5648912040649055
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.014953871435130404,
+        "exploration_strength": 35.81651808518944
+      },
+      "reward": {
+        "delta_hv": 0.023377364261867872,
+        "delta_igd": 0.018882894584599186
+      }
+    },
+    {
+      "generation": 38,
+      "state": {
+        "generation": 38,
+        "hv": 0.5544730421462387,
+        "igd": 0.2121227651193713,
+        "diversity": 0.7241241249218414
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.10911470646956953,
+        "exploration_strength": 36.9417185776552
+      },
+      "reward": {
+        "delta_hv": 0.017952231025541332,
+        "delta_igd": 0.010089172001728347
+      }
+    },
+    {
+      "generation": 39,
+      "state": {
+        "generation": 39,
+        "hv": 0.5620551924379749,
+        "igd": 0.20698804148661565,
+        "diversity": 0.7550903655577698
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.21066054658987715,
+        "exploration_strength": 7.095673848096228
+      },
+      "reward": {
+        "delta_hv": 0.007582150291736145,
+        "delta_igd": 0.005134723632755661
+      }
+    },
+    {
+      "generation": 40,
+      "state": {
+        "generation": 40,
+        "hv": 0.5882352066117175,
+        "igd": 0.19342743103282747,
+        "diversity": 0.5391238848149453
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.21047977845505628,
+        "exploration_strength": 0.060751545091762206
+      },
+      "reward": {
+        "delta_hv": 0.026180014173742605,
+        "delta_igd": 0.013560610453788174
+      }
+    },
+    {
+      "generation": 41,
+      "state": {
+        "generation": 41,
+        "hv": 0.6069447522421686,
+        "igd": 0.18033811593544755,
+        "diversity": 0.6563707710608376
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.08161385664433315,
+        "exploration_strength": 0.045870842344730586
+      },
+      "reward": {
+        "delta_hv": 0.01870954563045113,
+        "delta_igd": 0.013089315097379928
+      }
+    },
+    {
+      "generation": 42,
+      "state": {
+        "generation": 42,
+        "hv": 0.6282846719167057,
+        "igd": 0.16502083510885301,
+        "diversity": 0.5604090949443735
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.16512817303159322,
+        "exploration_strength": 18.395076479424063
+      },
+      "reward": {
+        "delta_hv": 0.021339919674537078,
+        "delta_igd": 0.015317280826594531
+      }
+    },
+    {
+      "generation": 43,
+      "state": {
+        "generation": 43,
+        "hv": 0.6654585476843253,
+        "igd": 0.13535133542220437,
+        "diversity": 0.5352580902529842
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.11586181894727156,
+        "exploration_strength": 25.575031193121504
+      },
+      "reward": {
+        "delta_hv": 0.03717387576761966,
+        "delta_igd": 0.029669499686648643
+      }
+    },
+    {
+      "generation": 44,
+      "state": {
+        "generation": 44,
+        "hv": 0.6816665939277213,
+        "igd": 0.12718056998132402,
+        "diversity": 0.6217332712900125
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.06309170734552345,
+        "exploration_strength": 22.438161530169218
+      },
+      "reward": {
+        "delta_hv": 0.016208046243396,
+        "delta_igd": 0.008170765440880357
+      }
+    },
+    {
+      "generation": 45,
+      "state": {
+        "generation": 45,
+        "hv": 0.6859799339583823,
+        "igd": 0.12419825880726776,
+        "diversity": 0.5635233860909654
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.22375780038646675,
+        "exploration_strength": 16.439536718129485
+      },
+      "reward": {
+        "delta_hv": 0.004313340030660973,
+        "delta_igd": 0.002982311174056257
+      }
+    },
+    {
+      "generation": 46,
+      "state": {
+        "generation": 46,
+        "hv": 0.6894734612085622,
+        "igd": 0.12302483547804634,
+        "diversity": 0.5739044244773114
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.03856664322753902,
+        "exploration_strength": 2.206076078899146
+      },
+      "reward": {
+        "delta_hv": 0.0034935272501799286,
+        "delta_igd": 0.0011734233292214208
+      }
+    },
+    {
+      "generation": 47,
+      "state": {
+        "generation": 47,
+        "hv": 0.7009988990680003,
+        "igd": 0.1158214446806473,
+        "diversity": 0.7041296831932797
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.09509572758989018,
+        "exploration_strength": 9.990756272198631
+      },
+      "reward": {
+        "delta_hv": 0.011525437859438048,
+        "delta_igd": 0.00720339079739904
+      }
+    },
+    {
+      "generation": 48,
+      "state": {
+        "generation": 48,
+        "hv": 0.7060798816153647,
+        "igd": 0.11304612004525999,
+        "diversity": 0.59979603854441
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.14530009383820341,
+        "exploration_strength": 7.025964233237005
+      },
+      "reward": {
+        "delta_hv": 0.005080982547364443,
+        "delta_igd": 0.002775324635387308
+      }
+    },
+    {
+      "generation": 49,
+      "state": {
+        "generation": 49,
+        "hv": 0.7132007880463773,
+        "igd": 0.09941857687988265,
+        "diversity": 0.5962529667255041
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.26130409221001116,
+        "exploration_strength": 2.4143796203954007
+      },
+      "reward": {
+        "delta_hv": 0.007120906431012597,
+        "delta_igd": 0.013627543165377343
+      }
+    },
+    {
+      "generation": 50,
+      "state": {
+        "generation": 50,
+        "hv": 0.7198115170772079,
+        "igd": 0.09540293032419549,
+        "diversity": 0.5668210009270032
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.16146249246815983,
+        "exploration_strength": 20.504183834166152
+      },
+      "reward": {
+        "delta_hv": 0.006610729030830598,
+        "delta_igd": 0.004015646555687161
+      }
+    },
+    {
+      "generation": 51,
+      "state": {
+        "generation": 51,
+        "hv": 0.7254380968116587,
+        "igd": 0.09210481287391385,
+        "diversity": 0.5088087366588695
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.23615304970403675,
+        "exploration_strength": 0.26653588979186615
+      },
+      "reward": {
+        "delta_hv": 0.005626579734450798,
+        "delta_igd": 0.0032981174502816346
+      }
+    },
+    {
+      "generation": 52,
+      "state": {
+        "generation": 52,
+        "hv": 0.7326830707969374,
+        "igd": 0.08625462803707176,
+        "diversity": 0.5705880873899021
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.22880128391411206,
+        "exploration_strength": 0.04410930456175248
+      },
+      "reward": {
+        "delta_hv": 0.00724497398527868,
+        "delta_igd": 0.00585018483684209
+      }
+    },
+    {
+      "generation": 53,
+      "state": {
+        "generation": 53,
+        "hv": 0.743345728302268,
+        "igd": 0.07908052195126744,
+        "diversity": 0.6586119516050863
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.013906995943063627,
+        "exploration_strength": 2.971498331364113
+      },
+      "reward": {
+        "delta_hv": 0.010662657505330575,
+        "delta_igd": 0.0071741060858043215
+      }
+    },
+    {
+      "generation": 54,
+      "state": {
+        "generation": 54,
+        "hv": 0.7604429471698738,
+        "igd": 0.06694759617979647,
+        "diversity": 0.6204427692655203
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.01378461977150863,
+        "exploration_strength": 11.896765827316177
+      },
+      "reward": {
+        "delta_hv": 0.017097218867605846,
+        "delta_igd": 0.012132925771470973
+      }
+    },
+    {
+      "generation": 55,
+      "state": {
+        "generation": 55,
+        "hv": 0.7634661014395335,
+        "igd": 0.06563604783757325,
+        "diversity": 0.4990556371176655
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.09360356549637841,
+        "exploration_strength": 13.998542406941366
+      },
+      "reward": {
+        "delta_hv": 0.0030231542696597113,
+        "delta_igd": 0.0013115483422232177
+      }
+    },
+    {
+      "generation": 56,
+      "state": {
+        "generation": 56,
+        "hv": 0.7687916281190913,
+        "igd": 0.062118952002284934,
+        "diversity": 0.523351475863161
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.22395136834948237,
+        "exploration_strength": 20.877797597171416
+      },
+      "reward": {
+        "delta_hv": 0.005325526679557768,
+        "delta_igd": 0.0035170958352883155
+      }
+    },
+    {
+      "generation": 57,
+      "state": {
+        "generation": 57,
+        "hv": 0.7744582793487133,
+        "igd": 0.05851689837695715,
+        "diversity": 0.6080558538557193
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.21085483499323898,
+        "exploration_strength": 47.02509312298617
+      },
+      "reward": {
+        "delta_hv": 0.005666651229621955,
+        "delta_igd": 0.0036020536253277835
+      }
+    },
+    {
+      "generation": 58,
+      "state": {
+        "generation": 58,
+        "hv": 0.7807421739057148,
+        "igd": 0.055072798058311855,
+        "diversity": 0.6060901035323392
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.0663669839409025,
+        "exploration_strength": 10.126099262078798
+      },
+      "reward": {
+        "delta_hv": 0.0062838945570015126,
+        "delta_igd": 0.003444100318645296
+      }
+    },
+    {
+      "generation": 59,
+      "state": {
+        "generation": 59,
+        "hv": 0.7882558220779862,
+        "igd": 0.0516966282596142,
+        "diversity": 0.614862836226078
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.01673579955640421,
+        "exploration_strength": 19.246010724158182
+      },
+      "reward": {
+        "delta_hv": 0.007513648172271403,
+        "delta_igd": 0.003376169798697655
+      }
+    },
+    {
+      "generation": 60,
+      "state": {
+        "generation": 60,
+        "hv": 0.7933937255633526,
+        "igd": 0.047742389683677465,
+        "diversity": 0.6915173710007827
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.023562094669786565,
+        "exploration_strength": 14.293348257077298
+      },
+      "reward": {
+        "delta_hv": 0.0051379034853664685,
+        "delta_igd": 0.003954238575936735
+      }
+    },
+    {
+      "generation": 61,
+      "state": {
+        "generation": 61,
+        "hv": 0.7988733411793931,
+        "igd": 0.04469429920454633,
+        "diversity": 0.7054707507176867
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.09648732445274903,
+        "exploration_strength": 15.657251287443668
+      },
+      "reward": {
+        "delta_hv": 0.00547961561604049,
+        "delta_igd": 0.003048090479131134
+      }
+    },
+    {
+      "generation": 62,
+      "state": {
+        "generation": 62,
+        "hv": 0.8012040979587092,
+        "igd": 0.043406231857054924,
+        "diversity": 0.628730946553329
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.2258553707889811,
+        "exploration_strength": 16.00513391119288
+      },
+      "reward": {
+        "delta_hv": 0.0023307567793160455,
+        "delta_igd": 0.0012880673474914076
+      }
+    },
+    {
+      "generation": 63,
+      "state": {
+        "generation": 63,
+        "hv": 0.8056654284128786,
+        "igd": 0.0403207451746286,
+        "diversity": 0.593451803341141
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.13632465984828138,
+        "exploration_strength": 0.10303464643718974
+      },
+      "reward": {
+        "delta_hv": 0.00446133045416941,
+        "delta_igd": 0.003085486682426322
+      }
+    },
+    {
+      "generation": 64,
+      "state": {
+        "generation": 64,
+        "hv": 0.8090603928397087,
+        "igd": 0.03878981441060426,
+        "diversity": 0.5238468701106991
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.09802584282895414,
+        "exploration_strength": 34.256857111016515
+      },
+      "reward": {
+        "delta_hv": 0.0033949644268300716,
+        "delta_igd": 0.0015309307640243436
+      }
+    },
+    {
+      "generation": 65,
+      "state": {
+        "generation": 65,
+        "hv": 0.8137699173702124,
+        "igd": 0.036279363564147085,
+        "diversity": 0.5749280578781122
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.09069835705407069,
+        "exploration_strength": 42.67513990829124
+      },
+      "reward": {
+        "delta_hv": 0.0047095245305037725,
+        "delta_igd": 0.0025104508464571726
+      }
+    },
+    {
+      "generation": 66,
+      "state": {
+        "generation": 66,
+        "hv": 0.8185407556021833,
+        "igd": 0.03351486753484026,
+        "diversity": 0.4419279263291531
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.1131470074752771,
+        "exploration_strength": 47.94716825842669
+      },
+      "reward": {
+        "delta_hv": 0.004770838231970886,
+        "delta_igd": 0.002764496029306826
+      }
+    },
+    {
+      "generation": 67,
+      "state": {
+        "generation": 67,
+        "hv": 0.8226137610705868,
+        "igd": 0.030672529471463816,
+        "diversity": 0.4948527443457395
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.059647400412544835,
+        "exploration_strength": 30.68745883335523
+      },
+      "reward": {
+        "delta_hv": 0.004073005468403501,
+        "delta_igd": 0.002842338063376443
+      }
+    },
+    {
+      "generation": 68,
+      "state": {
+        "generation": 68,
+        "hv": 0.824145844667432,
+        "igd": 0.030232191549926676,
+        "diversity": 0.4531163757130109
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.21467369707475936,
+        "exploration_strength": 0.07867686382686835
+      },
+      "reward": {
+        "delta_hv": 0.0015320835968452018,
+        "delta_igd": 0.0004403379215371407
+      }
+    },
+    {
+      "generation": 69,
+      "state": {
+        "generation": 69,
+        "hv": 0.8251089287087857,
+        "igd": 0.029698633838722163,
+        "diversity": 0.44676315643648934
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.15035463580177938,
+        "exploration_strength": 5.1102354884582954
+      },
+      "reward": {
+        "delta_hv": 0.0009630840413537012,
+        "delta_igd": 0.0005335577112045124
+      }
+    },
+    {
+      "generation": 70,
+      "state": {
+        "generation": 70,
+        "hv": 0.8274014117568324,
+        "igd": 0.028390133841401797,
+        "diversity": 0.3969179412560144
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.07718240762027428,
+        "exploration_strength": 3.550531173396671
+      },
+      "reward": {
+        "delta_hv": 0.002292483048046634,
+        "delta_igd": 0.0013084999973203663
+      }
+    },
+    {
+      "generation": 71,
+      "state": {
+        "generation": 71,
+        "hv": 0.8279761988272932,
+        "igd": 0.028081649642242024,
+        "diversity": 0.3247314787996815
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.24408141897078842,
+        "exploration_strength": 44.08412330243274
+      },
+      "reward": {
+        "delta_hv": 0.0005747870704608804,
+        "delta_igd": 0.00030848419915977324
+      }
+    },
+    {
+      "generation": 72,
+      "state": {
+        "generation": 72,
+        "hv": 0.8300157723552072,
+        "igd": 0.026968369782442103,
+        "diversity": 0.3516913895943044
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.058725409496750855,
+        "exploration_strength": 30.886954604802927
+      },
+      "reward": {
+        "delta_hv": 0.0020395735279139515,
+        "delta_igd": 0.0011132798597999205
+      }
+    },
+    {
+      "generation": 73,
+      "state": {
+        "generation": 73,
+        "hv": 0.8300226858413261,
+        "igd": 0.026968369782442103,
+        "diversity": 0.3521622626527176
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.25765816067141273,
+        "exploration_strength": 10.34322822087781
+      },
+      "reward": {
+        "delta_hv": 6.913486118920176e-06,
+        "delta_igd": 0.0
+      }
+    },
+    {
+      "generation": 74,
+      "state": {
+        "generation": 74,
+        "hv": 0.8305980946332658,
+        "igd": 0.026695898265617125,
+        "diversity": 0.37006380863794563
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.10229269209006958,
+        "exploration_strength": 3.9976895571731568
+      },
+      "reward": {
+        "delta_hv": 0.0005754087919397355,
+        "delta_igd": 0.00027247151682497847
+      }
+    },
+    {
+      "generation": 75,
+      "state": {
+        "generation": 75,
+        "hv": 0.8321255759893227,
+        "igd": 0.025705664508985954,
+        "diversity": 0.36207810205631824
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.10347461123041209,
+        "exploration_strength": 17.915898894016316
+      },
+      "reward": {
+        "delta_hv": 0.0015274813560568479,
+        "delta_igd": 0.000990233756631171
+      }
+    },
+    {
+      "generation": 76,
+      "state": {
+        "generation": 76,
+        "hv": 0.8335862193393085,
+        "igd": 0.024950874191766555,
+        "diversity": 0.33468157879319904
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.14830764509838876,
+        "exploration_strength": 39.332412923099284
+      },
+      "reward": {
+        "delta_hv": 0.0014606433499858573,
+        "delta_igd": 0.0007547903172193983
+      }
+    },
+    {
+      "generation": 77,
+      "state": {
+        "generation": 77,
+        "hv": 0.8351372743180648,
+        "igd": 0.024011054953468173,
+        "diversity": 0.3715193656650202
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.05867988410749991,
+        "exploration_strength": 26.092659068620794
+      },
+      "reward": {
+        "delta_hv": 0.0015510549787562944,
+        "delta_igd": 0.0009398192382983825
+      }
+    },
+    {
+      "generation": 78,
+      "state": {
+        "generation": 78,
+        "hv": 0.8357630305245215,
+        "igd": 0.02383891210406716,
+        "diversity": 0.31733785281540844
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.19818951780788224,
+        "exploration_strength": 43.39420839151904
+      },
+      "reward": {
+        "delta_hv": 0.0006257562064566624,
+        "delta_igd": 0.00017214284940101146
+      }
+    },
+    {
+      "generation": 79,
+      "state": {
+        "generation": 79,
+        "hv": 0.8372941113651,
+        "igd": 0.02265742169040836,
+        "diversity": 0.3150285445315666
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.03629501391738908,
+        "exploration_strength": 23.91515510890859
+      },
+      "reward": {
+        "delta_hv": 0.0015310808405785137,
+        "delta_igd": 0.001181490413658802
+      }
+    },
+    {
+      "generation": 80,
+      "state": {
+        "generation": 80,
+        "hv": 0.8388639082923189,
+        "igd": 0.021956678841919843,
+        "diversity": 0.3342884634521374
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.045384993499770536,
+        "exploration_strength": 23.79554723693675
+      },
+      "reward": {
+        "delta_hv": 0.001569796927218925,
+        "delta_igd": 0.0007007428484885163
+      }
+    },
+    {
+      "generation": 81,
+      "state": {
+        "generation": 81,
+        "hv": 0.8403651614412079,
+        "igd": 0.021053114335984315,
+        "diversity": 0.3176567188664827
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.05905547657337524,
+        "exploration_strength": 47.21802874514981
+      },
+      "reward": {
+        "delta_hv": 0.001501253148888937,
+        "delta_igd": 0.0009035645059355286
+      }
+    },
+    {
+      "generation": 82,
+      "state": {
+        "generation": 82,
+        "hv": 0.841999142127178,
+        "igd": 0.019941028147881724,
+        "diversity": 0.36134087435040774
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.013012136739322942,
+        "exploration_strength": 36.99187059890849
+      },
+      "reward": {
+        "delta_hv": 0.0016339806859700934,
+        "delta_igd": 0.0011120861881025908
+      }
+    },
+    {
+      "generation": 83,
+      "state": {
+        "generation": 83,
+        "hv": 0.8436856269663389,
+        "igd": 0.01898044711184848,
+        "diversity": 0.3573774740398592
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.03816584052746169,
+        "exploration_strength": 30.62374675070591
+      },
+      "reward": {
+        "delta_hv": 0.0016864848391608955,
+        "delta_igd": 0.0009605810360332444
+      }
+    },
+    {
+      "generation": 84,
+      "state": {
+        "generation": 84,
+        "hv": 0.8455161244007634,
+        "igd": 0.01787082799185683,
+        "diversity": 0.3961262719660625
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.03318934980072362,
+        "exploration_strength": 18.762477297573685
+      },
+      "reward": {
+        "delta_hv": 0.0018304974344245384,
+        "delta_igd": 0.0011096191199916478
+      }
+    },
+    {
+      "generation": 85,
+      "state": {
+        "generation": 85,
+        "hv": 0.8460084484436114,
+        "igd": 0.017580592098095843,
+        "diversity": 0.3657150347460435
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.17846464847060522,
+        "exploration_strength": 40.95397777389552
+      },
+      "reward": {
+        "delta_hv": 0.0004923240428480469,
+        "delta_igd": 0.00029023589376098863
+      }
+    },
+    {
+      "generation": 86,
+      "state": {
+        "generation": 86,
+        "hv": 0.847086156909082,
+        "igd": 0.016805701360686248,
+        "diversity": 0.3513050599858804
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.022388142475048015,
+        "exploration_strength": 23.045464276563457
+      },
+      "reward": {
+        "delta_hv": 0.001077708465470506,
+        "delta_igd": 0.0007748907374095955
+      }
+    },
+    {
+      "generation": 87,
+      "state": {
+        "generation": 87,
+        "hv": 0.8484753316243817,
+        "igd": 0.015968348868312172,
+        "diversity": 0.3621704142792959
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.027186828049357112,
+        "exploration_strength": 17.38914176026003
+      },
+      "reward": {
+        "delta_hv": 0.0013891747152997569,
+        "delta_igd": 0.0008373524923740751
+      }
+    },
+    {
+      "generation": 88,
+      "state": {
+        "generation": 88,
+        "hv": 0.8491446075593313,
+        "igd": 0.015542605100311722,
+        "diversity": 0.34873856522878866
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.13718221565764657,
+        "exploration_strength": 16.376881638931117
+      },
+      "reward": {
+        "delta_hv": 0.0006692759349495869,
+        "delta_igd": 0.0004257437680004507
+      }
+    },
+    {
+      "generation": 89,
+      "state": {
+        "generation": 89,
+        "hv": 0.8505687357043759,
+        "igd": 0.014616561239988122,
+        "diversity": 0.4057760869460948
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.009342650602781059,
+        "exploration_strength": 0.024657284430228913
+      },
+      "reward": {
+        "delta_hv": 0.0014241281450445564,
+        "delta_igd": 0.0009260438603236002
+      }
+    },
+    {
+      "generation": 90,
+      "state": {
+        "generation": 90,
+        "hv": 0.8512796779403744,
+        "igd": 0.014210042260702603,
+        "diversity": 0.333388829634468
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.16425025945605293,
+        "exploration_strength": 18.189675614303884
+      },
+      "reward": {
+        "delta_hv": 0.0007109422359985462,
+        "delta_igd": 0.0004065189792855188
+      }
+    },
+    {
+      "generation": 91,
+      "state": {
+        "generation": 91,
+        "hv": 0.8516076894818511,
+        "igd": 0.014027610340857248,
+        "diversity": 0.3228003101737755
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.14064436024976465,
+        "exploration_strength": 29.564226839336737
+      },
+      "reward": {
+        "delta_hv": 0.00032801154147665823,
+        "delta_igd": 0.00018243191984535466
+      }
+    },
+    {
+      "generation": 92,
+      "state": {
+        "generation": 92,
+        "hv": 0.8521522050894094,
+        "igd": 0.01366245201348871,
+        "diversity": 0.3228443248560849
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.059905483880452165,
+        "exploration_strength": 23.850337118545898
+      },
+      "reward": {
+        "delta_hv": 0.0005445156075583046,
+        "delta_igd": 0.00036515832736853764
+      }
+    },
+    {
+      "generation": 93,
+      "state": {
+        "generation": 93,
+        "hv": 0.8528991080058826,
+        "igd": 0.013456441090341314,
+        "diversity": 0.3052126131577876
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.023057073504367014,
+        "exploration_strength": 13.289483698170395
+      },
+      "reward": {
+        "delta_hv": 0.0007469029164732799,
+        "delta_igd": 0.0002060109231473966
+      }
+    },
+    {
+      "generation": 94,
+      "state": {
+        "generation": 94,
+        "hv": 0.8535244977315343,
+        "igd": 0.013068526664385169,
+        "diversity": 0.3428431515190393
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.010772985222878319,
+        "exploration_strength": 14.492396415677243
+      },
+      "reward": {
+        "delta_hv": 0.0006253897256516261,
+        "delta_igd": 0.000387914425956145
+      }
+    },
+    {
+      "generation": 95,
+      "state": {
+        "generation": 95,
+        "hv": 0.8545599436713669,
+        "igd": 0.012461343064363906,
+        "diversity": 0.406290176836147
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.028735369427578,
+        "exploration_strength": 0.22607592290198347
+      },
+      "reward": {
+        "delta_hv": 0.0010354459398326243,
+        "delta_igd": 0.0006071836000212626
+      }
+    },
+    {
+      "generation": 96,
+      "state": {
+        "generation": 96,
+        "hv": 0.8548764410257761,
+        "igd": 0.01225246144483742,
+        "diversity": 0.3633471039044293
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.17471827346529792,
+        "exploration_strength": 14.34996717328084
+      },
+      "reward": {
+        "delta_hv": 0.00031649735440919535,
+        "delta_igd": 0.0002088816195264867
+      }
+    },
+    {
+      "generation": 97,
+      "state": {
+        "generation": 97,
+        "hv": 0.8553534266476928,
+        "igd": 0.01204947751688075,
+        "diversity": 0.36192903741442267
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.047125049427655046,
+        "exploration_strength": 10.46555530174961
+      },
+      "reward": {
+        "delta_hv": 0.00047698562191667015,
+        "delta_igd": 0.00020298392795667017
+      }
+    },
+    {
+      "generation": 98,
+      "state": {
+        "generation": 98,
+        "hv": 0.8559637509207215,
+        "igd": 0.011755737365584752,
+        "diversity": 0.37260006939665796
+      },
+      "action": {
+        "mutation_operator": "polynomial",
+        "mutation_probability": 0.04534851842746639,
+        "exploration_strength": 16.324564045496352
+      },
+      "reward": {
+        "delta_hv": 0.0006103242730287617,
+        "delta_igd": 0.00029374015129599723
+      }
+    },
+    {
+      "generation": 99,
+      "state": {
+        "generation": 99,
+        "hv": 0.8564110578326884,
+        "igd": 0.011484984007563195,
+        "diversity": 0.37824838976303804
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.054253728157729164,
+        "exploration_strength": 0.09460192017466909
+      },
+      "reward": {
+        "delta_hv": 0.00044730691196692707,
+        "delta_igd": 0.00027075335802155716
+      }
+    },
+    {
+      "generation": 100,
+      "state": {
+        "generation": 100,
+        "hv": 0.8569565062419189,
+        "igd": 0.011077598704795459,
+        "diversity": 0.36317926294948893
+      },
+      "action": {
+        "mutation_operator": "gaussian",
+        "mutation_probability": 0.0790779598081108,
+        "exploration_strength": 0.06284396246031448
+      },
+      "reward": {
+        "delta_hv": 0.0005454484092304313,
+        "delta_igd": 0.0004073853027677359
+      }
+    }
+  ],
+  "final": {
+    "hv": 0.8569565062419189,
+    "igd": 0.011077598704795459,
+    "diversity": 0.36317926294948893
+  },
+  "metrics": {
+    "final_hv": 0.8569565062419189,
+    "final_igd": 0.011077598704795459,
+    "auc_hv": 0.5637791764446237,
+    "runtime_sec": 67.54973569999999,
+    "failed": false
+  }
+}
