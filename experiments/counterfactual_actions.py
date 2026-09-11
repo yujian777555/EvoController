@@ -44,7 +44,14 @@ Subcommands (argparse subparsers):
   every state this subcommand restores the snapshot, applies one candidate
   action for ``max(horizons)`` consecutive generations, and records the
   nondominated front's HV after each requested horizon, so
-  ``reward_h = hv(after h generations) - hv(before the branch)``. Per
+  ``reward_h = hv(after h generations) - hv(before the branch)``. Candidate
+  index 0 is the controller action and — since Phase 2.75D, controlled by
+  ``--include-default-action`` (default on) — index 1 is the **NSGA-II default
+  action** tagged ``kind="default"``, which is the baseline of Target B
+  ("advantage over the default evolutionary policy", Task 3 of
+  ``docs/PHASE2_75D_PLAN.md``); the sampled alternatives follow, and
+  ``--n-alternatives`` counts only those. ``--no-include-default-action``
+  reproduces the pre-2.75D candidate set exactly. Per
   horizon it reports the controller action's percentile rank, the oracle
   regret (best candidate mean score - controller mean score), whether the
   controller action is the oracle argmax, and the within-state
@@ -557,6 +564,16 @@ def percentile_rank_of_first(values: Sequence[float] | np.ndarray) -> float:
     return float((n_less + 0.5 * n_tied) / (v.size - 1))
 
 
+#: NSGA-II default variation action (``algorithms.nsga2.OperatorConfig``
+#: defaults: polynomial mutation, ``pm = 1 / n_vars`` i.e. multiplier 1.0, and
+#: ``eta_m = 20``). ``evaluate-horizon`` inserts it as an explicit candidate so
+#: Phase 2.75D Target B (advantage over the default evolutionary policy) can be
+#: computed from intervention data.
+DEFAULT_ACTION_OPERATOR = "polynomial"
+DEFAULT_ACTION_MULTIPLIER = 1.0
+DEFAULT_ACTION_EXPLORATION = 20.0
+
+
 def _build_candidate_actions(
     *,
     controller_action: dict[str, Any],
@@ -564,13 +581,27 @@ def _build_candidate_actions(
     n_alternatives: int,
     base_pm: float,
     pm_mult_range: tuple[float, float],
+    include_default_action: bool = False,
 ) -> list[dict[str, Any]]:
-    """Candidate action list: index 0 controller, 1..n sampled alternatives.
+    """Candidate action list: controller, default, then sampled alternatives.
 
     Shared by ``evaluate`` and ``evaluate-horizon`` so both protocols score
     bit-identical candidate sets for the same snapshot: alternative ``k`` is
     drawn with ``Generator(PCG64([hash_seed, k]))`` through
     :func:`experiments.generate_dataset.sample_full_action`.
+
+    Layout:
+
+    * index 0 — the controller action;
+    * index 1 — the NSGA-II default action
+      (:data:`DEFAULT_ACTION_OPERATOR`, ``base_pm`` = multiplier 1.0,
+      :data:`DEFAULT_ACTION_EXPLORATION`), **only** when
+      ``include_default_action`` is True. Phase 2.75D Target B needs this
+      candidate, because a sampled pool contains the default tuple only by
+      chance;
+    * the rest — the sampled alternatives, whose draws do not depend on the
+      flag (the RNG seed is ``[hash_seed, k]``), so the pre-2.75D corpus is
+      reproduced exactly with ``include_default_action=False``.
 
     Args:
         controller_action: Dict returned by the controller's
@@ -579,11 +610,13 @@ def _build_candidate_actions(
         n_alternatives: Number of sampled alternatives (>= 1).
         base_pm: Baseline mutation probability ``1 / n_vars``.
         pm_mult_range: Log-uniform multiplier bounds around ``base_pm``.
+        include_default_action: Insert the NSGA-II default action as the
+            second candidate (default False keeps the historical behaviour).
 
     Returns:
-        ``1 + n_alternatives`` action dicts with keys
-        ``mutation_operator``, ``mutation_probability`` and
-        ``exploration_strength``.
+        ``1 + n_alternatives`` action dicts (``2 + n_alternatives`` with the
+        default candidate), each with keys ``mutation_operator``,
+        ``mutation_probability`` and ``exploration_strength``.
     """
     actions: list[dict[str, Any]] = [
         {
@@ -592,6 +625,14 @@ def _build_candidate_actions(
             "exploration_strength": float(controller_action["exploration_strength"]),
         }
     ]
+    if include_default_action:
+        actions.append(
+            {
+                "mutation_operator": DEFAULT_ACTION_OPERATOR,
+                "mutation_probability": float(base_pm) * DEFAULT_ACTION_MULTIPLIER,
+                "exploration_strength": DEFAULT_ACTION_EXPLORATION,
+            }
+        )
     for k in range(1, int(n_alternatives) + 1):
         rng_k = np.random.Generator(np.random.PCG64([hash_seed, k]))
         operator, pm, exploration = sample_full_action(rng_k, base_pm, pm_mult_range)
@@ -1188,6 +1229,7 @@ def evaluate_snapshot_horizon(
     n_alternatives: int,
     n_reps: int,
     pm_mult_range: tuple[float, float],
+    include_default_action: bool = False,
 ) -> dict[str, Any]:
     """Branch every candidate for ``max(horizons)`` generations at one snapshot.
 
@@ -1284,7 +1326,9 @@ def evaluate_snapshot_horizon(
         n_alternatives=int(n_alternatives),
         base_pm=1.0 / n_vars,
         pm_mult_range=pm_mult_range,
+        include_default_action=bool(include_default_action),
     )
+    default_index = 1 if include_default_action else None
     n_candidates = len(actions)
     predicted = _predict_candidate_rewards(
         predictor,
@@ -1372,7 +1416,13 @@ def evaluate_snapshot_horizon(
     candidates = [
         {
             "index": int(k),
-            "kind": "controller" if k == 0 else "alternative",
+            "kind": (
+                "controller"
+                if k == 0
+                else "default"
+                if k == default_index
+                else "alternative"
+            ),
             "action": actions[k],
             "future_hv": {
                 str(h): [float(future_hv[k][i][rep]) for rep in range(int(n_reps))]
@@ -1622,6 +1672,7 @@ def run_evaluate_horizon(args: argparse.Namespace) -> dict[str, Any]:
             n_alternatives=args.n_alternatives,
             n_reps=args.n_reps,
             pm_mult_range=pm_mult_range,
+            include_default_action=bool(args.include_default_action),
         )
         states.append(record)
         ranks = " ".join(
@@ -1645,6 +1696,7 @@ def run_evaluate_horizon(args: argparse.Namespace) -> dict[str, Any]:
             "branch_generations": int(horizons[-1]),
             "n_alternatives": int(args.n_alternatives),
             "n_reps": int(args.n_reps),
+            "include_default_action": bool(args.include_default_action),
             "max_states": int(args.max_states),
             "pm_mult_range": [float(pm_mult_range[0]), float(pm_mult_range[1])],
             "ref_point": [float(ref_point[0]), float(ref_point[1])],
@@ -1969,6 +2021,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     horizon.add_argument(
         "--n-alternatives", type=int, default=DEFAULT_HORIZON_N_ALTERNATIVES,
         help="Alternative full actions per state (default: %(default)s).",
+    )
+    horizon.add_argument(
+        "--include-default-action",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Insert the NSGA-II default action (polynomial mutation, "
+        "pm = 1/n_vars i.e. multiplier 1.0, eta_m = "
+        f"{DEFAULT_ACTION_EXPLORATION:g}) as an explicit candidate right after "
+        "the controller action, tagged kind='default'. Phase 2.75D Target B "
+        "(advantage over the default evolutionary policy) is only computable "
+        "with this candidate; --n-alternatives still counts the sampled "
+        "alternatives only. Use --no-include-default-action to reproduce the "
+        "pre-2.75D candidate set exactly (default: %(default)s).",
     )
     horizon.add_argument(
         "--n-reps", type=int, default=DEFAULT_HORIZON_N_REPS,

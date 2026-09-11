@@ -648,9 +648,12 @@ def test_horizon_evaluator_records_schema_and_ranks(
         assert set(state["per_horizon"]) == set(_TINY_HORIZONS)
         assert state["prediction_available"] is False
         candidates = state["candidates"]
-        assert len(candidates) == 1 + _TINY_HORIZON_ALTERNATIVES
+        # Phase 2.75D protocol: controller (index 0) + NSGA-II default action
+        # (index 1, Target B baseline) + sampled alternatives.
+        assert len(candidates) == 2 + _TINY_HORIZON_ALTERNATIVES
         assert candidates[0]["kind"] == "controller"
-        assert all(c["kind"] == "alternative" for c in candidates[1:])
+        assert candidates[1]["kind"] == "default"
+        assert all(c["kind"] == "alternative" for c in candidates[2:])
         for candidate in candidates:
             assert candidate["predicted_reward"] is None
             assert set(candidate["future_hv"]) == set(_TINY_HORIZONS)
@@ -742,7 +745,7 @@ def test_horizon_evaluator_branches_accumulate_hypervolume(
     assert hv_before > 0.0
     h2 = late_state["per_horizon"]["2"]
     h4 = late_state["per_horizon"]["4"]
-    assert h2["n_candidates"] == 1 + _TINY_HORIZON_ALTERNATIVES
+    assert h2["n_candidates"] == 2 + _TINY_HORIZON_ALTERNATIVES
     assert 0.0 <= h2["controller_percentile_rank"] <= 1.0
     assert 0.0 <= h4["controller_percentile_rank"] <= 1.0
     assert h2["oracle_regret"] >= 0.0 and h4["oracle_regret"] >= 0.0
@@ -833,7 +836,7 @@ def test_planning_horizon_reports_predicted_vs_realized_ranking(
         assert state["per_horizon"]["4"]["spearman_predicted_vs_realized"] is None
         assert state["per_horizon"]["4"]["kendall_predicted_vs_realized"] is None
         assert state["per_horizon"]["2"]["n_candidates"] == (
-            1 + _TINY_HORIZON_ALTERNATIVES
+            2 + _TINY_HORIZON_ALTERNATIVES
         )
         for key in _TINY_HORIZONS:
             entry = state["per_horizon"][key]
@@ -845,9 +848,10 @@ def test_planning_horizon_reports_predicted_vs_realized_ranking(
         for candidate in state["candidates"]:
             predicted = candidate["predicted_reward"]
             assert set(predicted) == {"2"}
-            assert candidate["kind"] == (
-                "controller" if candidate["index"] == 0 else "alternative"
+            expected_kind = {0: "controller", 1: "default"}.get(
+                candidate["index"], "alternative"
             )
+            assert candidate["kind"] == expected_kind
 
 
 def test_aggregate_horizon_merges_bootstraps_and_thirds(

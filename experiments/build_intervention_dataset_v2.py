@@ -32,22 +32,32 @@ written to its own file so they can be trained against each other:
     ``mean_reward(candidate) - mean_reward(NSGA-II default action)``, i.e.
     improvement over the standard strategy rather than over the field. The
     default action is ``polynomial`` / multiplier ``1.0`` / ``eta_m 20.0``;
-    since the candidate set is sampled, the stand-in is selected in this order
-    (the rule actually used is recorded per state):
+    since Phase 2.75D ``evaluate-horizon --include-default-action`` inserts it
+    as an explicit candidate tagged ``kind="default"``, and that candidate is
+    used directly. Older corpora (no such candidate) fall back, in order, to a
+    candidate whose action tuple equals the default, to the candidate with
+    ``kind == "controller"`` (the deployed controller's action), and finally to
+    the action closest to the default in the normalized action space — the
+    Phase-2.75C degradation that motivated the protocol fix.
 
-    1. ``exact`` — a candidate whose action equals the default tuple;
-    2. ``controller`` — the candidate with ``kind == "controller"`` (the action
-       the deployed controller takes, i.e. the practical status quo);
-    3. ``nearest`` — the candidate closest to the default in the normalized
-       action space (``hypot`` of the log-multiplier and eta_m gaps, plus a
-       unit penalty when the operator differs).
+``future_improvement``
+    **Target C** of ``docs/PHASE2_75D_PLAN.md``: the branch's absolute
+    improvement, ``future_metric - current_metric`` with
+    ``future_metric = mean_reward + hv_before`` (hypervolume at the snapshot
+    plus the gain the branch realized) and ``current_metric = hv_before``.
+    Because ``mean_reward`` already *is* ``hv(after h) - hv(before)``, the
+    target equals ``mean_reward`` — no baseline is subtracted
+    (``baseline_value = 0.0``). This is **not** ``final_hv``: ``final_hv`` is
+    the state-mean-centred target at the largest horizon copied onto every
+    horizon column, while ``future_improvement`` keeps each horizon's own
+    absolute gain and centers nothing.
 
 ``final_hv``
     the diagnostic of ``docs/PHASE2_75_RESULTS.md``: the target should reflect
     where the branch *ends up*, not a fixed 20-generation window. The corpus
-    only branches 5/10/20 generations, so the largest requested horizon is used
-    as a **proxy** (``proxy_horizon`` plus a ``limitation`` string are written
-    to the meta), the baseline stays ``state_mean`` and every horizon row of a
+    only branches a few horizons, so the largest requested horizon is used as
+    a **proxy** (``proxy_horizon`` plus a ``limitation`` string are written to
+    the meta), the baseline stays ``state_mean`` and every horizon row of a
     candidate receives the proxy-horizon advantage.
 
 Outputs (``--out-dir``, default ``results/phase2_75c``): one directory per
@@ -101,8 +111,17 @@ DEFAULT_ENCODER = "results/phase2_outcome/encoder.json"
 DEFAULT_OUT_DIR = "results/phase2_75c"
 #: Advantage horizons extracted from the intervention files.
 DEFAULT_HORIZONS: tuple[int, ...] = (5, 10, 20)
-#: Advantage definitions supported by ``--advantage-baseline``.
-ADVANTAGE_BASELINES: tuple[str, ...] = ("state_mean", "default_action", "final_hv")
+#: Advantage definitions supported by ``--advantage-baseline``:
+#: ``state_mean`` (Target A), ``default_action`` (Target B, needs the
+#: ``kind="default"`` candidate produced by ``evaluate-horizon`` since Phase
+#: 2.75D), ``future_improvement`` (Target C) and ``final_hv`` (the Phase-2.75C
+#: long-horizon proxy, kept for comparability).
+ADVANTAGE_BASELINES: tuple[str, ...] = (
+    "state_mean",
+    "default_action",
+    "future_improvement",
+    "final_hv",
+)
 #: NSGA-II default action expressed as (operator, multiplier, eta_m).
 DEFAULT_ACTION: dict[str, Any] = {
     "mutation_operator": "polynomial",
@@ -150,8 +169,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments of the v2 intervention dataset builder."""
     parser = argparse.ArgumentParser(
         description=(
-            "Phase 2.75C: build problem-aware intervention datasets "
-            "(76-column X) under three advantage definitions."
+            "Phase 2.75C/2.75D: build problem-aware intervention datasets "
+            "(76-column X) under the state_mean / default_action / "
+            "future_improvement / final_hv advantage definitions."
         )
     )
     parser.add_argument("--input-dir", type=str, default=DEFAULT_INPUT_DIR,
@@ -232,6 +252,12 @@ def select_default_candidate(
     """
     if not candidates:
         raise ValueError("cannot select a default candidate from an empty list")
+    # Rule "exact": either the protocol-marked default candidate (Phase 2.75D
+    # ``evaluate-horizon --include-default-action`` tags it kind="default"), or
+    # any candidate whose action tuple equals the NSGA-II default.
+    for index, candidate in enumerate(candidates):
+        if str(candidate.get("kind", "alternative")) == "default":
+            return index, "exact"
     for index, candidate in enumerate(candidates):
         action = candidate["action"]
         operator = str(action["mutation_operator"])
@@ -271,22 +297,47 @@ def advantage_targets(
     baseline: str,
     horizons: Sequence[int],
     default_index: int,
+    hv_before: float | None = None,
 ) -> tuple[dict[int, list[float]], dict[int, float]]:
     """Advantage of every candidate at every horizon for one definition.
+
+    Definitions (``--advantage-baseline``):
+
+    * ``state_mean`` — ``mean_reward - mean over all candidates`` (Target A:
+      superiority over the contemporary field).
+    * ``default_action`` — ``mean_reward - mean_reward[default_index]``
+      (Target B: improvement over the default evolutionary policy).
+    * ``future_improvement`` — Target C, the absolute improvement of the
+      branch: ``future_metric - current_metric`` with
+      ``future_metric = mean_reward[h] + hv_before`` (hypervolume after ``h``
+      generations) and ``current_metric = hv_before`` (hypervolume at the
+      snapshot). The ``hv_before`` terms cancel, so the target equals
+      ``mean_reward[h]`` — but the formula is written out because it is the
+      definition, and it makes the difference to ``final_hv`` explicit:
+      ``final_hv`` is a *state-mean-centred* target evaluated at the largest
+      horizon and copied onto every horizon column, whereas
+      ``future_improvement`` keeps each horizon's own absolute gain and is not
+      centred at all.
+    * ``final_hv`` — Phase-2.75C proxy: ``state_mean`` at the largest horizon,
+      replicated onto every horizon column.
 
     Args:
         means_by_horizon: ``{horizon: [mean_reward per candidate]}``.
         baseline: One of :data:`ADVANTAGE_BASELINES`.
         horizons: Horizons being extracted.
         default_index: Candidate standing in for the default action.
+        hv_before: Snapshot hypervolume; required by ``future_improvement``
+            (its formula is defined in absolute hypervolume terms).
 
     Returns:
         ``(targets, baselines)``: ``targets[h][candidate]`` is the advantage
-        and ``baselines[h]`` the baseline value behind it. ``final_hv`` maps
-        every horizon onto the proxy horizon's target and baseline.
+        and ``baselines[h]`` the value subtracted from ``mean_reward[h]``
+        (``0.0`` for ``future_improvement``, whose baseline is the snapshot
+        itself). ``final_hv`` maps every horizon onto the proxy horizon.
 
     Raises:
-        ValueError: If ``baseline`` is unknown or a horizon is missing.
+        ValueError: If ``baseline`` is unknown, a horizon is missing, or
+            ``future_improvement`` is requested without ``hv_before``.
     """
     if baseline not in ADVANTAGE_BASELINES:
         raise ValueError(
@@ -297,6 +348,24 @@ def advantage_targets(
     missing = [h for h in horizon_list if h not in means_by_horizon]
     if missing:
         raise ValueError(f"horizons {missing} are missing from the state record")
+    if baseline == "future_improvement":
+        if hv_before is None:
+            raise ValueError(
+                "baseline 'future_improvement' needs hv_before: the target is "
+                "(mean_reward[h] + hv_before) - hv_before, i.e. the branch's "
+                "absolute hypervolume gain over the snapshot"
+            )
+        current_metric = float(hv_before)
+        return (
+            {
+                horizon: [
+                    (mean + current_metric) - current_metric
+                    for mean in means_by_horizon[horizon]
+                ]
+                for horizon in horizon_list
+            },
+            {horizon: 0.0 for horizon in horizon_list},
+        )
     if baseline == "final_hv":
         proxy = proxy_horizon(horizon_list)
         proxy_means = means_by_horizon[proxy]
@@ -480,6 +549,7 @@ def extract_state_rows(
                 baseline=baseline,
                 horizons=used_horizons,
                 default_index=default_index,
+                hv_before=hv_before,
             )
             for baseline in ADVANTAGE_BASELINES
         }
@@ -684,6 +754,9 @@ def run_build(args: argparse.Namespace) -> dict[str, Any]:
     targets_by_problem: dict[str, dict[str, list[float]]] = {
         baseline: {} for baseline in baselines
     }
+    baselines_by_problem: dict[str, dict[str, list[float]]] = {
+        baseline: {} for baseline in baselines
+    }
     baseline_report: dict[str, Any] = {
         baseline: {"n_samples": 0, "per_horizon": {}, "per_problem": {}}
         for baseline in baselines
@@ -742,6 +815,11 @@ def run_build(args: argparse.Namespace) -> dict[str, Any]:
                 for value in extracted["targets"][baseline][horizon]
             ]
             targets_by_problem[baseline][problem_name] = flat
+            baselines_by_problem[baseline][problem_name] = [
+                float(value)
+                for horizon in horizons
+                for value in extracted["baselines"][baseline][horizon]
+            ]
             baseline_report[baseline]["n_samples"] += len(flat)
             baseline_report[baseline]["per_problem"][problem_name] = _distribution(flat)
             for horizon in horizons:
@@ -783,8 +861,14 @@ def run_build(args: argparse.Namespace) -> dict[str, Any]:
         baseline_dir = out_dir / baseline
         baseline_dir.mkdir(parents=True, exist_ok=True)
         for problem_name in ordered_problems:
+            # ``baseline_value`` describes the definition written to this file
+            # (the state_mean one matches v1 bit for bit)
+            problem_columns = dict(columns_by_problem[problem_name])
+            problem_columns["baseline_value"] = baselines_by_problem[baseline][
+                problem_name
+            ]
             arrays = _arrays(
-                columns_by_problem[problem_name],
+                problem_columns,
                 targets_by_problem[baseline][problem_name],
             )
             # one directory per definition, so the Phase-2.75 trainer
