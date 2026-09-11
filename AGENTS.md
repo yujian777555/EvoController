@@ -89,6 +89,24 @@ Better optimization
 ### Phase 4 — Application
 接入 NeuroEvoScientist，用于 Agent cognitive architecture evolution。
 
+## 当前进度（截至 2026-09-11）
+
+实际执行的阶段序列（与上方原始路线图有偏差，以本表为准）：
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| Phase 0 | Evolution Dataset Generation（NSGA-II + ZDT + Recorder） | ✅ |
+| Phase 1 | MLP Evolution Controller（模仿学习） | ✅ |
+| Phase 1.5 | Decision Understanding（扩展 action 空间 + problem 特征 + action 动态分析） | ✅ |
+| Phase 1.75 | Decision Causality & Fair Baselines（9 arms × 20 seeds + 反事实） | ⚠️ 完成但 **gate 未通过**：闭环反馈因果贡献微弱 |
+| Phase 2A | Outcome Predictor（(state, action) → future HV） | ✅ held-out R² 0.979–0.999 |
+| Phase 2B | Search Policy Optimization（PlanningController） | 🚧 协议按外部评审修正中；B1 初步结果 planner 胜 fixed 但不及 static/generation-only |
+
+关键结论链接：`docs/PHASE1_75_RESULTS.md`（gate 失败分析）、`docs/PHASE2_OUTCOME_PREDICTOR.md`（2A）、
+`docs/PHASE2B_STABILIZATION_PLAN.md` + `docs/PHASE2B_REVIEW_VERIFICATION.md`（2B 协议修正）。
+
+**硬性约束（延续）**：在 Phase 2B 通过其成功标准前，不要实现 Mamba/SSM/Transformer。
+
 ## Experiment Rules
 
 所有实验必须：

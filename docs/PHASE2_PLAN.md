@@ -1,5 +1,9 @@
 # Phase 2 Plan: Trajectory-aware Evolution Controller
 
+> **SUPERSEDED**: replaced by [PHASE2_REDESIGN_PLAN.md](PHASE2_REDESIGN_PLAN.md) (see also
+> [PHASE2_EXPERIMENT_B_PLAN.md](PHASE2_EXPERIMENT_B_PLAN.md)). Kept for history only —
+> do not follow this plan.
+
 > 本计划由 Executor 依据 AGENTS.md 路线图（Phase 2: Transformer / Mamba / SSM）与 docs/PHASE1_RESULTS.md 的结论起草，Planner 可覆盖修订。
 
 ## Objective

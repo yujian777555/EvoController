@@ -13,9 +13,9 @@
 | Phase 0 | Evolution Dataset Generation (NSGA-II + benchmarks + trajectory recorder) | ✅ 已完成 (2026-09-08) |
 | Phase 1 | Learned Evolution Controller (MLP baseline) | ✅ 已完成 (2026-09-08) |
 | Phase 1.5 | Evolution Decision Understanding（action 动态分析 + 扩展 action 空间 + problem 特征） | ✅ 已完成 (2026-09-09) |
-| Phase 1.75 | Decision Causality & Fair Baselines（matched full-action + open-loop + counterfactual + 20 seeds） | ❌ 已完成 (2026-09-10)，**Phase-2 gate 未通过** |
+| Phase 1.75 | Decision Causality & Fair Baselines（matched full-action + open-loop + counterfactual + 20 seeds） | ⚠️ 已完成 (2026-09-10)，**gate 未通过** |
 | Phase 2 Redesign | Outcome Predictor（(state, action) → future HV 预测，替代模仿学习） | ✅ Experiment A 完成 (2026-09-10)，R² > 0.97 |
-| Phase 2B | Search Policy Optimization（PlanningController：候选动作采样 + outcome 预测选优） | 🚧 核心实现完成 (2026-09-11)，实验待运行 |
+| Phase 2B | Search Policy Optimization（PlanningController：候选动作采样 + outcome 预测选优） | 🚧 协议已按外部评审修正，结果待重评 (2026-09-11) |
 | Phase 2 | Trajectory-aware Controller (Transformer / Mamba / SSM) | ⏸ **暂停**（等待 Experiment B 验证） |
 | Phase 3 | Advanced Controller (memory, credit assignment, transfer) | 未开始 |
 | Phase 4 | Application (NeuroEvoScientist) | 未开始 |
@@ -33,17 +33,38 @@ EvoController/
 ├── experiments/         # generate_dataset.py（fixed/random × pm/full action 空间）
 │                        # run_phase1.py（MLP 基线）、run_phase1_5.py（controller v2）、analyze_actions.py（action 动态分析）
 │                        # train/evaluate_outcome_predictor.py（Phase 2A）、counterfactual_actions.py（反事实快照评估，支持 planning controller）
-│                        # run_phase2b.py（Phase 2B 闭环配对评估 + 与 Phase-1.75 全部 arms 的统计对比）
+│                        # run_phase2b.py（Phase 2B 闭环配对评估 + Holm 校正/CI/失败率 + 与 Phase-1.75 全部 arms 的统计对比）
+│                        # analyze_phase1_75.py（论文级统计工具：Holm、paired bootstrap CI、Wilcoxon）
 ├── docs/                # Phase 计划与实验记录
-├── tests/               # pytest 测试套件（395 项）
+├── tests/               # pytest 测试套件（396 项）
 └── results/             # 实验输出（git 忽略）
     ├── trajectory/          # Phase 0 固定策略轨迹
     ├── trajectory_random/   # Phase 1 随机策略轨迹（仅 pm）
     ├── trajectory_full/     # Phase 1.5 全 action 空间随机轨迹
+    ├── trajectory_phase1_75/ # Phase 1.75 500 条训练语料
     ├── phase1/              # Phase 1 评估结果
     ├── phase1_5/            # Phase 1.5 评估结果
+    ├── phase1_75/           # Phase 1.75 评估结果（含 9 arms、快照、controllers）
+    ├── phase2_outcome/      # Phase 2A 训练好的 OutcomePredictor + 评估
+    ├── phase2b/             # Phase 2B 结果（runs/、results.json、comparison.json、counterfactual/）
     └── analysis/            # action 动态分析与图表
 ```
+
+> **结果隔离约定**：Phase-2B 的反事实输出默认写入
+> `results/phase2b/counterfactual/`，不会覆盖 `results/phase1_75/` 的既有工件。
+
+## 外部评审与协议修正
+
+Phase 2B 的初次结果触发了外部评审，发现评估协议与 planner 目标错配（planner 优化长 horizon
+预测 HV，而反事实评估器只测一步 reward）。修正计划与核验记录见：
+
+- [docs/PHASE2B_STABILIZATION_PLAN.md](docs/PHASE2B_STABILIZATION_PLAN.md) —— 协议对齐任务清单
+- [docs/PHASE2B_REVIEW_VERIFICATION.md](docs/PHASE2B_REVIEW_VERIFICATION.md) —— 评审条目逐条核验
+
+**B1 主评估结果为初步结论**（已加 Holm 校正、配对 bootstrap CI 与失败率）：planner 显著优于
+fixed NSGA-II（zdt1/2/3/6，Holm p = 4.8e-06），但显著落后于 static full-action 与
+generation-only schedule（p = 1）。一步反事实 rank ≈ 0.50，按评审意见**不足以证伪**
+长 horizon planning —— 长 horizon 反事实评估正在按修正协议实现。
 
 ## Quickstart
 

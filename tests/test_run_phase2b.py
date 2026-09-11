@@ -21,6 +21,7 @@ from controller.state_encoder import StateEncoder
 from experiments.run_phase1_75 import ARMS as PHASE1_75_ARMS
 from experiments.run_phase2b import (
     ARM_PLANNING,
+    BOOTSTRAP_RESAMPLES,
     _wilcoxon_greater,
     parse_args,
     run_experiment,
@@ -84,19 +85,27 @@ def _make_predictor_dir(predictor_dir: Path, *, window: int = 3) -> None:
     )
 
 
-def _make_phase1_75_results(path: Path, *, problem: str = "zdt1", seed: int = 1000) -> None:
-    """Fabricate a minimal Phase-1.75 results.json with all nine arms."""
+def _make_phase1_75_results(
+    path: Path, *, problem: str = "zdt1", seed: int = 1000, seeds: Any = None
+) -> None:
+    """Fabricate a minimal Phase-1.75 results.json with all nine arms.
+
+    ``seeds`` optionally overrides ``seed`` with a sequence of eval seeds;
+    per-seed metric values differ so paired tests are non-degenerate.
+    """
+    seed_list = [int(s) for s in seeds] if seeds is not None else [int(seed)]
     rng = np.random.default_rng(1)
     runs = {
-        f"{arm}|{problem}|{seed}": {
+        f"{arm}|{problem}|{s}": {
             "final_hv": float(0.7 + rng.random() * 0.1),
             "final_igd": float(0.02 + rng.random() * 0.01),
             "auc_hv": float(0.5 + rng.random() * 0.1),
             "runtime_sec": 1.0,
             "failed": False,
-            "trajectory_file": f"runs/{arm}__{problem}__seed{seed}.json",
+            "trajectory_file": f"runs/{arm}__{problem}__seed{s}.json",
         }
         for arm in PHASE1_75_ARMS
+        for s in seed_list
     }
     _write_json(
         path,
@@ -105,7 +114,7 @@ def _make_phase1_75_results(path: Path, *, problem: str = "zdt1", seed: int = 10
             "failure_thresholds": {"thresholds": {problem: 0.0}},
             "arms": list(PHASE1_75_ARMS),
             "problems": [problem],
-            "eval_seeds": [seed],
+            "eval_seeds": seed_list,
             "runs": runs,
         },
     )
@@ -135,6 +144,33 @@ def mini_experiment(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     )
     results = run_experiment(args)
     return {"results": results, "out_dir": out_dir}
+
+
+@pytest.fixture(scope="module")
+def multi_seed_experiment(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    """Tiny pipeline with several seeds so Holm/CI fields are non-degenerate."""
+    tmp = tmp_path_factory.mktemp("phase2b_multi")
+    predictor_dir = tmp / "predictor"
+    _make_predictor_dir(predictor_dir)
+    phase1_75_path = tmp / "phase1_75_results.json"
+    seeds = [1000, 1001, 1002]
+    _make_phase1_75_results(phase1_75_path, seeds=seeds)
+    out_dir = tmp / "out"
+    args = parse_args(
+        [
+            "--stage", "all",
+            "--predictor-dir", str(predictor_dir),
+            "--phase1-75-results", str(phase1_75_path),
+            "--out-dir", str(out_dir),
+            "--problems", "zdt1",
+            "--seeds", *[str(s) for s in seeds],
+            "--generations", "4",
+            "--pop-size", "20",
+            "--n-candidates", "3",
+        ]
+    )
+    run_experiment(args)
+    return {"out_dir": out_dir}
 
 
 def test_run_json_schema(mini_experiment: dict[str, Any]) -> None:
@@ -208,9 +244,66 @@ def test_comparison_json_all_arms(mini_experiment: dict[str, Any]) -> None:
         assert entry["n_paired"] == 1
         for metric in ("final_hv", "auc_hv"):
             assert set(entry[metric]) == {"mean", "std"}
-            assert set(entry["wilcoxon"][metric]) == {"statistic", "p_value"}
-        # One pair is too few for the signed-rank test: guarded to None.
+            assert set(entry["wilcoxon"][metric]) == {
+                "statistic",
+                "p_value",
+                "p_holm",
+            }
+        # One pair is too few for the signed-rank test: guarded to None, and
+        # the paired-difference CI is likewise undefined below two pairs.
         assert entry["wilcoxon"]["final_hv"]["p_value"] is None
+        assert entry["delta_final_hv"]["median"] is None
+        assert entry["delta_final_hv"]["ci95"] is None
+
+
+def test_comparison_json_holm_and_failure_rates(
+    multi_seed_experiment: dict[str, Any],
+) -> None:
+    """Holm families, monotone correction, CI ordering and failure rates."""
+    comparison = json.loads(
+        (multi_seed_experiment["out_dir"] / "comparison.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "holm_families" in comparison["config"]
+    assert comparison["config"]["bootstrap"]["resamples"] == BOOTSTRAP_RESAMPLES
+
+    # Failure rates cover the planning arm and every baseline, per problem
+    # plus an overall entry.
+    rates = comparison["failure_rates"]
+    assert ARM_PLANNING in rates
+    for arm in PHASE1_75_ARMS:
+        assert arm in rates, arm
+        assert "overall" in rates[arm]
+        assert 0.0 <= rates[arm]["overall"] <= 1.0
+    assert 0.0 <= rates[ARM_PLANNING]["overall"] <= 1.0
+
+    # Holm correction is applied per (metric, arm) family across the
+    # problems present, is never smaller than the raw p-value, and is
+    # monotone in the raw p-value ordering.
+    for metric in ("final_hv", "auc_hv"):
+        for arm in PHASE1_75_ARMS:
+            pairs: list[tuple[float, float]] = []
+            for problem, report in comparison["problems"].items():
+                wilcoxon = report["comparisons"][arm]["wilcoxon"][metric]
+                raw, holm = wilcoxon["p_value"], wilcoxon["p_holm"]
+                if raw is None or holm is None:
+                    continue
+                assert holm >= raw - 1e-12, (problem, arm, metric, raw, holm)
+                assert holm <= 1.0 + 1e-12
+                pairs.append((raw, holm))
+            by_raw = sorted(pairs)
+            holms = [h for _, h in by_raw]
+            assert holms == sorted(holms), (arm, metric, holms)
+
+    # Paired-difference CIs bracket the median difference.
+    for report in comparison["problems"].values():
+        for entry in report["comparisons"].values():
+            delta = entry["delta_final_hv"]
+            if delta["ci95"] is None:
+                continue
+            lo, hi = delta["ci95"]
+            assert lo <= delta["median"] <= hi
 
 
 def test_missing_predictor_dir_raises(tmp_path: Path) -> None:

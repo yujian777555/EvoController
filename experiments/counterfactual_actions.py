@@ -102,8 +102,12 @@ DEFAULT_PROBLEMS: tuple[str, ...] = ("zdt1", "zdt2", "zdt3", "zdt4", "zdt6")
 DEFAULT_EVAL_SEEDS: tuple[int, ...] = (1000, 1001, 1002, 1003, 1004)
 #: Default snapshot output directory of ``harvest``.
 DEFAULT_SNAPSHOTS_DIR = "results/phase1_75/snapshots"
-#: Default output directory of ``evaluate``/``aggregate``.
+#: Default output directory of ``evaluate``/``aggregate`` for the Phase-1.75
+#: imitative controller (``--controller-type multihead``).
 DEFAULT_OUT_DIR = "results/phase1_75"
+#: Stage-isolated output directory used when ``--controller-type=planning``,
+#: so Phase-2B counterfactual artifacts never overwrite Phase-1.75 results.
+DEFAULT_PLANNING_OUT_DIR = "results/phase2b/counterfactual"
 #: Default number of snapshot states per (problem, seed) run.
 DEFAULT_STATES_PER_RUN = 40
 #: Default number of alternative actions per state (plus the controller's).
@@ -340,6 +344,26 @@ def _load_encoder(path: str | Path) -> StateEncoder | ProblemAwareEncoder:
     if "problem_vector" in payload:
         return ProblemAwareEncoder.load(path)
     return StateEncoder.load(path)
+
+
+def _resolve_evaluate_out_dir(controller_type: str | None) -> str:
+    """Return the stage-isolated default output directory for ``evaluate``.
+
+    Phase-2B planning counterfactuals must never write into the Phase-1.75
+    results directory, so ``--controller-type=planning`` defaults to
+    :data:`DEFAULT_PLANNING_OUT_DIR` while the imitative controller keeps
+    :data:`DEFAULT_OUT_DIR`.
+
+    Args:
+        controller_type: Value of ``--controller-type`` (``"multihead"`` or
+            ``"planning"``; ``None`` behaves like ``"multihead"``).
+
+    Returns:
+        The default output directory for that controller family.
+    """
+    if str(controller_type) == "planning":
+        return DEFAULT_PLANNING_OUT_DIR
+    return DEFAULT_OUT_DIR
 
 
 def _load_planning_controller(
@@ -729,7 +753,7 @@ def run_evaluate(args: argparse.Namespace) -> dict[str, Any]:
             "seeds": sorted({int(s["seed"]) for s in states}),
         },
     }
-    out_dir = Path(args.out_dir)
+    out_dir = Path(args.out_dir or _resolve_evaluate_out_dir(args.controller_type))
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"counterfactual_{problem.name}.json"
     with out_path.open("w", encoding="utf-8") as fh:
@@ -926,8 +950,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Directory with harvest snapshots (default: %(default)s).",
     )
     evaluate.add_argument(
-        "--out-dir", type=str, default=DEFAULT_OUT_DIR,
-        help="Output directory for counterfactual_{problem}.json (default: %(default)s).",
+        "--out-dir", type=str, default=None,
+        help="Output directory for counterfactual_{problem}.json. Defaults to "
+        "the Phase-2B isolated directory "
+        f"({DEFAULT_PLANNING_OUT_DIR}) when --controller-type=planning, so "
+        f"Phase-1.75 artifacts under {DEFAULT_OUT_DIR} are never overwritten; "
+        "defaults to %(default)s-style "
+        f"{DEFAULT_OUT_DIR} for --controller-type=multihead.",
     )
     evaluate.add_argument(
         "--controller", required=True,

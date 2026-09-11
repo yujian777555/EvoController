@@ -61,12 +61,16 @@ from controller.dataset import merge_state_reward
 from controller.outcome_predictor import OutcomePredictor
 from controller.planning_controller import PlanningController
 from controller.state_encoder import StateEncoder
+from experiments.analyze_phase1_75 import holm_correction, paired_bootstrap_ci
 from experiments.run_phase1 import _auc_hv
 from experiments.run_phase1_75 import _sanitize_action
 from trajectory import EvolutionRecorder
 
 #: Arm identifier of the planning controller (used in run keys/files).
 ARM_PLANNING = "planning_predictor"
+
+#: Bootstrap resamples for the paired median-difference CI (deterministic seed 0).
+BOOTSTRAP_RESAMPLES = 10_000
 #: Default evaluation problem grid (all Phase-0 ZDT benchmarks).
 DEFAULT_PROBLEMS: tuple[str, ...] = ("zdt1", "zdt2", "zdt3", "zdt4", "zdt6")
 #: Held-out evaluation seeds; identical to Phase 1.75 for paired statistics.
@@ -675,7 +679,15 @@ def build_comparison(
         arm_names = sorted({str(k).split("|")[0] for k in baseline_runs})
     arm_names = [str(a) for a in arm_names if str(a) != ARM_PLANNING]
 
+    metrics = ("final_hv", "auc_hv")
     problem_reports: dict[str, Any] = {}
+    # Raw p-values collected per (metric, arm) family so the Holm step-down
+    # correction can be applied across the five problems afterwards.
+    families: dict[tuple[str, str], dict[str, float]] = {
+        (metric, arm): {} for metric in metrics for arm in arm_names
+    }
+    paired_series: dict[tuple[str, str, str], tuple[list[float], list[float]]] = {}
+
     for problem in problems:
         planning_hv = [
             float(entry["final_hv"])
@@ -694,12 +706,17 @@ def build_comparison(
         )
         comparisons: dict[str, Any] = {}
         for arm in arm_names:
+            arm_keyed = {
+                k: v for k, v in baseline_runs.items() if k.startswith(f"{arm}|")
+            }
             paired_hv = _paired_metric_series(
-                planning_runs, {k: v for k, v in baseline_runs.items() if k.startswith(f"{arm}|")}, problem, "final_hv"
+                planning_runs, arm_keyed, problem, "final_hv"
             )
             paired_auc = _paired_metric_series(
-                planning_runs, {k: v for k, v in baseline_runs.items() if k.startswith(f"{arm}|")}, problem, "auc_hv"
+                planning_runs, arm_keyed, problem, "auc_hv"
             )
+            paired_series[(problem, arm, "final_hv")] = paired_hv
+            paired_series[(problem, arm, "auc_hv")] = paired_auc
             arm_hv = [
                 float(entry["final_hv"])
                 for key, entry in sorted(baseline_runs.items())
@@ -710,25 +727,100 @@ def build_comparison(
                 for key, entry in sorted(baseline_runs.items())
                 if key.startswith(f"{arm}|{problem}|")
             ]
+            wilcoxon: dict[str, Any] = {}
+            for metric, paired in (("final_hv", paired_hv), ("auc_hv", paired_auc)):
+                result = _wilcoxon_greater(*paired)
+                wilcoxon[metric] = result
+                if result.get("p_value") is not None:
+                    families[(metric, arm)][problem] = float(result["p_value"])
             comparisons[arm] = {
                 "n_runs": len(arm_hv),
                 "n_paired": len(paired_hv[0]),
                 "final_hv": _mean_std(arm_hv),
                 "auc_hv": _mean_std(arm_auc),
-                "wilcoxon": {
-                    "final_hv": _wilcoxon_greater(*paired_hv),
-                    "auc_hv": _wilcoxon_greater(*paired_auc),
-                },
+                "wilcoxon": wilcoxon,
             }
         problem_reports[problem] = {
             ARM_PLANNING: {
                 "n_runs": len(planning_hv),
                 "n_failed": int(n_failed),
+                "failure_rate": float(n_failed / len(planning_hv))
+                if planning_hv
+                else 0.0,
                 "final_hv": _mean_std(planning_hv),
                 "auc_hv": _mean_std(planning_auc),
             },
             "comparisons": comparisons,
         }
+
+    # Holm correction across the five problems within each
+    # (metric, comparison-arm) family, plus the paired median difference and
+    # its 95% bootstrap CI. Raw p-values are preserved alongside.
+    holm: dict[tuple[str, str], dict[str, float]] = {
+        key: holm_correction(values) for key, values in families.items() if values
+    }
+    for problem, report in problem_reports.items():
+        for arm, comparison in report["comparisons"].items():
+            for metric in metrics:
+                p_holm = holm.get((metric, arm), {}).get(problem)
+                comparison["wilcoxon"][metric] = dict(
+                    comparison["wilcoxon"][metric], p_holm=p_holm
+                )
+                paired = paired_series.get((problem, arm, metric))
+                if paired is None or len(paired[0]) < 2:
+                    comparison[f"delta_{metric}"] = {
+                        "median": None,
+                        "ci95": None,
+                    }
+                    continue
+                median_diff, lo, hi = paired_bootstrap_ci(
+                    paired[0], paired[1], n_boot=BOOTSTRAP_RESAMPLES, seed=0
+                )
+                comparison[f"delta_{metric}"] = {
+                    "median": float(median_diff),
+                    "ci95": [float(lo), float(hi)],
+                }
+
+    failure_rates: dict[str, Any] = {}
+    planning_flags = [
+        bool(entry.get("failed")) for entry in planning_runs.values()
+    ]
+    failure_rates[ARM_PLANNING] = {
+        problem: float(
+            sum(
+                1
+                for key, entry in planning_runs.items()
+                if key.split("|")[1] == problem and entry.get("failed")
+            )
+            / max(
+                1,
+                sum(
+                    1
+                    for key in planning_runs
+                    if key.split("|")[1] == problem
+                ),
+            )
+        )
+        for problem in problems
+    }
+    failure_rates[ARM_PLANNING]["overall"] = (
+        float(sum(planning_flags) / len(planning_flags)) if planning_flags else 0.0
+    )
+    for arm in arm_names:
+        entry: dict[str, float] = {}
+        arm_flags: list[bool] = []
+        for problem in problems:
+            flags = [
+                bool(v.get("failed"))
+                for k, v in baseline_runs.items()
+                if k.startswith(f"{arm}|{problem}|")
+            ]
+            entry[problem] = float(sum(flags) / len(flags)) if flags else 0.0
+            arm_flags.extend(flags)
+        entry["overall"] = (
+            float(sum(arm_flags) / len(arm_flags)) if arm_flags else 0.0
+        )
+        failure_rates[arm] = entry
 
     return {
         "config": {
@@ -739,9 +831,20 @@ def build_comparison(
                 "alternative='greater': planning_predictor metric > arm "
                 "metric), paired by (problem, seed)"
             ),
+            "holm_families": (
+                "Holm-Bonferroni step-down across the five problems, applied "
+                "separately within each (metric, comparison-arm) family "
+                "(10 families: 2 metrics x 5+ comparison arms)"
+            ),
+            "bootstrap": {
+                "resamples": BOOTSTRAP_RESAMPLES,
+                "seed": 0,
+                "interval": "percentile 2.5/97.5 of paired median difference",
+            },
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         },
         "problems": problem_reports,
+        "failure_rates": failure_rates,
     }
 
 
@@ -803,7 +906,51 @@ def run_aggregate_stage(args: argparse.Namespace) -> dict[str, Any]:
     with comparison_path.open("w", encoding="utf-8") as fh:
         json.dump(comparison, fh, indent=2, ensure_ascii=False)
     print(f"[aggregate] wrote comparison -> {comparison_path}")
+    _print_comparison_table(comparison, problems)
     return payload
+
+
+def _print_comparison_table(
+    comparison: dict[str, Any], problems: Sequence[str]
+) -> None:
+    """Print the Holm-corrected planning comparison as a compact table.
+
+    Args:
+        comparison: Payload returned by :func:`build_comparison`.
+        problems: Problem names in report order.
+    """
+    print(
+        "\n[planning vs baseline] final_hv: raw p / Holm p / median delta "
+        "[95% CI] / failure rate"
+    )
+    header = f"{'problem':<8}{'arm':<28}{'raw_p':>10}{'holm_p':>10}"
+    header += f"{'delta_med':>12}{'ci95':>22}{'fail':>8}"
+    print(header)
+    for problem in problems:
+        report = comparison["problems"].get(problem)
+        if report is None:
+            continue
+        for arm, comp in report["comparisons"].items():
+            wilcoxon = comp["wilcoxon"]["final_hv"]
+            delta = comp.get("delta_final_hv", {})
+            ci = delta.get("ci95")
+            ci_text = (
+                f"[{ci[0]:.4f},{ci[1]:.4f}]"
+                if isinstance(ci, list) and len(ci) == 2 and None not in ci
+                else "n/a"
+            )
+            raw_p = wilcoxon.get("p_value")
+            holm_p = wilcoxon.get("p_holm")
+            rate = comparison["failure_rates"].get(arm, {}).get(problem, 0.0)
+            median = delta.get("median")
+            raw_text = f"{raw_p:.4g}" if raw_p is not None else "n/a"
+            holm_text = f"{holm_p:.4g}" if holm_p is not None else "n/a"
+            median_text = f"{median:.4f}" if median is not None else "n/a"
+            print(
+                f"{problem:<8}{arm:<28}{raw_text:>10}{holm_text:>10}"
+                f"{median_text:>12}{ci_text:>22}{rate:>8.2f}"
+            )
+        print()
 
 
 # ---------------------------------------------------------------------------
