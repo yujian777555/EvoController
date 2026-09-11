@@ -89,16 +89,36 @@
 3. **static_full_global 在 zdt4 上 HV=0（失败率 1.00）**：全局静态 pm 在多峰问题上失效，
    这正是 planner 本应发挥价值的场景，但 planner 未能利用。
 
-## B2 反事实：一步 vs 长 horizon
+## B2 反事实：一步 vs 长 horizon（已定稿）
 
 - **一步评估（secondary diagnostic）**：mean percentile rank = 0.5492（Phase 1.75 协议，
   250 状态），95% CI 包含 0.50。
-- **长 horizon 评估（primary，对齐 planner 目标）**：⏳ 运行中
-  （`results/phase2b/counterfactual/counterfactual_horizon*.json`，horizons 5/10/20，
-  30 状态/问题 × 11 候选 × 3 重复）。待完成后填入。
+- **长 horizon 评估（primary，对齐 planner 目标）**——5 问题 × 30 状态 = 150 状态/horizon，
+  11 候选 × 3 重复，分支 20 代：
 
-> **评审指出的关键点**：一步 rank ≈ 0.50 **不能证伪**长 horizon planning，
-> 因为 planner 优化的不是一步 reward。必须以长 horizon 结果作为主判据。
+| horizon | mean percentile rank | 95% CI | oracle hit rate | mean regret |
+|---|---|---|---|---|
+| h=5 | **0.4672** | [0.4319, 0.5028] | — | — |
+| h=10 | **0.4717** | [0.4362, 0.5079] | — | — |
+| h=20 | **0.4668** | [0.4251, 0.5083] | — | — |
+
+分问题明细（mean Spearman 预测排序 vs 真实收益，n=30 状态/问题）：
+
+| problem | h=5 | h=10 | h=20 |
+|---|---|---|---|
+| zdt1 | −0.217 | −0.153 | −0.174 |
+| zdt2 | +0.090 | +0.101 | +0.100 |
+| zdt3 | +0.029 | +0.044 | −0.163 |
+| zdt4 | 负（rank 0.33→0.25→0.12） | | |
+| zdt6 | 负（rank 0.33→0.27→0.30） | | |
+
+**结论**：三个 horizon 的 percentile rank 点估计**全部低于 0.5**，zdt1 明确低于随机
+（Spearman −0.15 ~ −0.22）。**即使采用与 planner 目标完全对齐的长 horizon 口径，
+其动作选择仍不优于随机** —— 外部评审"一步结果不能证否长 horizon planning"的保留意见
+由此解决：**长 horizon 规划同样不成立**。
+
+> 这一负结果的价值：它把 Phase 2B 的失败从"协议错配的假象"确证为**真实的排序能力缺失**，
+> 并直接指向根因（D1–D5 的 action 通道未被学习），从而确立了 Phase 2.75 的改进方向。
 
 ## 已知限制（诚实记录）
 
@@ -121,13 +141,14 @@
 | 标准 | 状态 |
 |---|---|
 | 1. planner 经校正后优于 fixed/static 基线 | ❌ 仅优于 fixed，**不及 static** |
-| 2. 反事实显示选中动作有正 advantage | ⏳ 长 horizon 评估运行中（一步版 rank≈0.50） |
-| 3. 预测排序与真实未来结果相关 | ❌ **D2 严格版 Spearman = −0.216**（负相关），argmax 命中率 14.3% ≈ 随机 |
+| 2. 反事实显示选中动作有正 advantage | ❌ 长 horizon rank 0.47（三个 horizon 点估计均 < 0.5，CI 含 0.5） |
+| 3. 预测排序与真实未来结果相关 | ❌ 长 horizon mean Spearman = −0.16 ~ +0.10（zdt1 为负），oracle hit 0–33% |
 | 4. 收益不能由静态 schedule 解释 | ❌ generation_only_mlp 全面优于 planner |
 
-**判定倾向：不通过 Phase 2B gate，不进入 Mamba/SSM。** 核心阻塞点是**排序器而非模型容量**：
-outcome predictor 的高 R² 由 state 驱动（D1），action 通道未被学习（D2/D5），且 action 的真实
-影响在 5 代尺度上信噪比仅 1.35（D4）——在此 SNR 下任何排序学习都会退化。
+**最终判定：Phase 2B 不通过 gate，不进入 Mamba/SSM。** 核心阻塞点是**排序器而非模型容量**：
+outcome predictor 的高 R² 由 state 驱动（D1），action 通道未被学习（D2/D5），5 代尺度上 action
+真实影响的信噪比仅 1.35（D4）；长 horizon 评估进一步确证排序质量在随机水平。详见
+[PHASE2_75_RESULTS.md](PHASE2_75_RESULTS.md) 的后续改进与结果。
 
 **下一步建议（不实施，仅记录）**：
 1. 改学习目标为 **action advantage**（相对 state-only 基线的增量），而非绝对 future HV
