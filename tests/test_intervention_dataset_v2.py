@@ -381,6 +381,7 @@ def test_run_build_advantages_match_the_payload(
             "--encoder", str(fixture["encoder_path"]),
             "--out-dir", str(out_dir),
             "--horizons", *[str(h) for h in _HORIZONS],
+            "--feature-set", "context",
         ]
     )
     meta = v2.run_build(args)
@@ -551,6 +552,7 @@ def test_v1_outputs_are_unchanged_by_v2(fixture: dict[str, Any], tmp_path: Path)
                 "--out-dir", str(v2_out),
                 "--horizons", *horizons,
                 "--advantage-baseline", "state_mean",
+                "--feature-set", "context",
             ]
         )
     )
@@ -571,3 +573,38 @@ def test_v1_outputs_are_unchanged_by_v2(fixture: dict[str, Any], tmp_path: Path)
         np.testing.assert_array_equal(new["baseline_value"], old["baseline_value"])
         # v1's array set is still fully contained in v2's
         assert set(old.files) <= set(new.files)
+
+
+def test_compact_feature_set_is_the_default_and_matches_v1_layout(
+    fixture: dict[str, Any], tmp_path: Path
+) -> None:
+    """Phase-2.75D: compact is the default and reproduces the v1 64-dim layout."""
+    v2_out = tmp_path / "v2_compact"
+    horizons = [str(h) for h in _HORIZONS]
+    v2.run_build(
+        v2.parse_args(
+            [
+                "--input-dir", str(fixture["input_dir"]),
+                "--snapshots-dir", str(fixture["snapshots_dir"]),
+                "--encoder", str(fixture["encoder_path"]),
+                "--out-dir", str(v2_out),
+                "--horizons", *horizons,
+                "--advantage-baseline", "state_mean",
+                # no --feature-set: the default must be compact
+            ]
+        )
+    )
+    meta = json.loads(
+        (v2_out / "state_mean" / "intervention_meta.json").read_text(encoding="utf-8")
+    )
+    assert meta["feature_dim"] == 64
+    assert [block["name"] for block in meta["feature_layout"]] == ["state", "action"]
+    with np.load(v2_out / "state_mean" / "intervention_dataset_zdt1.npz") as compact:
+        assert compact["X"].shape[1] == 64
+        # The compact layout is exactly [state 60][action 4].
+        np.testing.assert_array_equal(
+            compact["X"][:, :60], compact["state_block"]
+        )
+        np.testing.assert_array_equal(
+            compact["X"][:, 60:], compact["action_features"]
+        )

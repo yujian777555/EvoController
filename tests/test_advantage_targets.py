@@ -547,7 +547,9 @@ def test_compare_targets_end_to_end(
     assert written["config"]["targets"] == list(cat.DEFAULT_TARGETS)
     assert written["config"]["contrastive"] == "on"
     # the v2 layout: 60 state + 9 problem + 3 runtime + 4 action columns
-    assert written["data"]["input_dim"] == 76
+    # Phase-2.75D: the v2 builder now defaults to the compact 64-dim layout
+    # (state 60 + action 4), so the comparison consumes that representation.
+    assert written["data"]["input_dim"] == 64
     assert written["data"]["n_samples"] > 0
     assert written["split"]["shared_across_targets"] is True
     train_keys = set(written["split"]["train_state_keys"])

@@ -190,6 +190,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=["all", *ADVANTAGE_BASELINES],
         help="Advantage definition(s) to write, one npz each (default: %(default)s).",
     )
+    parser.add_argument(
+        "--feature-set", choices=["compact", "context"], default="compact",
+        help="Feature representation: 'compact' = state(60) + action(4) = 64 dims "
+        "(Phase-2.75D default; Phase 2.75C showed the problem/runtime context "
+        "blocks act as a shortcut and degrade action ranking), 'context' = the "
+        "76-dim Phase-2.75C layout (state + problem + runtime + action).",
+    )
     return parser.parse_args(argv)
 
 
@@ -432,8 +439,25 @@ def runtime_context_block(
     )
 
 
-def feature_layout() -> list[dict[str, Any]]:
-    """Machine-readable column layout of the 76-column feature matrix."""
+def feature_layout(feature_set: str = "context") -> list[dict[str, Any]]:
+    """Machine-readable column layout of the feature matrix.
+
+    ``feature_set="context"`` is the Phase-2.75C 76-column layout
+    (state + problem + runtime + action). ``feature_set="compact"`` is the
+    Phase-2.75D 64-column layout (state + action only): Phase 2.75C showed
+    the problem/runtime context blocks act as a shortcut and degrade action
+    ranking, so the compact set is the default for target comparisons.
+    """
+    if feature_set == "compact":
+        return [
+            {"name": "state", "start": 0, "stop": STATE_BLOCK,
+             "detail": "StateEncoder.transform(history): window x 6 state features"},
+            {"name": "action", "start": STATE_BLOCK,
+             "stop": STATE_BLOCK + ACTION_BLOCK,
+             "columns": ["mutation_multiplier", "exploration_strength",
+                         "onehot_polynomial", "onehot_gaussian"],
+             "detail": "identical layout to build_outcome_samples"},
+        ]
     return [
         {"name": "state", "start": 0, "stop": STATE_BLOCK,
          "detail": "StateEncoder.transform(history): window x 6 state features"},
@@ -469,6 +493,7 @@ def extract_state_rows(
     snapshots_dir: str | Path,
     problem_mean: np.ndarray,
     problem_std: np.ndarray,
+    feature_set: str = "context",
 ) -> dict[str, Any]:
     """Extract every ``(state, horizon, candidate)`` row of one intervention file.
 
@@ -560,6 +585,8 @@ def extract_state_rows(
                 columns["X"].append(
                     np.concatenate(
                         [state_block, problem_block, runtime_block, features]
+                        if feature_set == "context"
+                        else [state_block, features]
                     )
                 )
                 columns["problem"].append(problem_name)
@@ -655,12 +682,24 @@ def _arrays(
         "rewards": rewards,
         "n_reps": lengths,
         "baseline_value": np.asarray(columns["baseline_value"], dtype=np.float64),
-        "runtime": matrix[
-            :, STATE_BLOCK + PROBLEM_BLOCK : STATE_BLOCK + PROBLEM_BLOCK + RUNTIME_BLOCK
-        ],
-        "problem_features": matrix[:, STATE_BLOCK : STATE_BLOCK + PROBLEM_BLOCK],
+        "runtime": (
+            matrix[:, STATE_BLOCK + PROBLEM_BLOCK : STATE_BLOCK + PROBLEM_BLOCK + RUNTIME_BLOCK]
+            if matrix.shape[1] == FEATURE_DIM
+            else np.zeros((matrix.shape[0], 0), dtype=np.float64)
+        ),
+        "problem_features": (
+            matrix[:, STATE_BLOCK : STATE_BLOCK + PROBLEM_BLOCK]
+            if matrix.shape[1] == FEATURE_DIM
+            else np.zeros((matrix.shape[0], 0), dtype=np.float64)
+        ),
         "state_block": matrix[:, :STATE_BLOCK],
-        "action_features": matrix[:, STATE_BLOCK + PROBLEM_BLOCK + RUNTIME_BLOCK :],
+        # Compact layout places the action block directly after the state block;
+        # the context layout adds problem + runtime blocks in between.
+        "action_features": (
+            matrix[:, STATE_BLOCK + PROBLEM_BLOCK + RUNTIME_BLOCK :]
+            if matrix.shape[1] == FEATURE_DIM
+            else matrix[:, STATE_BLOCK:]
+        ),
     }
 
 
@@ -733,6 +772,13 @@ def run_build(args: argparse.Namespace) -> dict[str, Any]:
     #: first selected definition (its SNR components are target-independent).
     primary_baseline = baselines[0]
 
+    #: Effective feature width for the selected representation. ``compact``
+    #: drops the problem and runtime context blocks (Phase 2.75D: those acted
+    #: as a shortcut and degraded action ranking).
+    effective_dim = (
+        FEATURE_DIM if args.feature_set == "context" else STATE_BLOCK + ACTION_BLOCK
+    )
+
     payloads: list[tuple[Path, dict[str, Any]]] = []
     for path in files:
         with path.open("r", encoding="utf-8") as fh:
@@ -775,6 +821,7 @@ def run_build(args: argparse.Namespace) -> dict[str, Any]:
                 snapshots_dir=snapshots_dir,
                 problem_mean=problem_mean,
                 problem_std=problem_std,
+                feature_set=args.feature_set,
             )
         except ValueError as exc:
             skipped.append({"file": path.name, "reason": str(exc)})
@@ -881,21 +928,21 @@ def run_build(args: argparse.Namespace) -> dict[str, Any]:
                 "advantage_baseline": baseline,
                 "encoder": str(encoder_path),
                 "horizons": [int(h) for h in args.horizons],
-                "feature_dim": FEATURE_DIM,
+                "feature_dim": effective_dim,
                 "input_dir": str(input_dir),
                 "snapshots_dir": str(snapshots_dir),
                 "window": int(getattr(encoder, "window", 0)),
             },
             "n_samples": int(total_samples),
             "n_states": int(sum(entry["n_states"] for entry in per_problem.values())),
-            "feature_dim": FEATURE_DIM,
+            "feature_dim": effective_dim,
             "files_used": used_files,
             "files_skipped": skipped,
             "per_problem": per_problem,
             "per_horizon": per_horizon_block,
             "per_horizon_baseline": primary_baseline,
             "advantage_distribution": baseline_report[baseline],
-            "feature_layout": feature_layout(),
+            "feature_layout": feature_layout(args.feature_set),
         }
         with (baseline_dir / "intervention_meta.json").open(
             "w", encoding="utf-8"
@@ -916,18 +963,18 @@ def run_build(args: argparse.Namespace) -> dict[str, Any]:
             "advantage_baselines": baselines,
             "advantage_baseline_flag": list(args.advantage_baseline),
             "window": int(getattr(encoder, "window", 0)),
-            "feature_dim": FEATURE_DIM,
+            "feature_dim": effective_dim,
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         },
         "n_samples": int(total_samples),
         "n_states": int(sum(entry["n_states"] for entry in per_problem.values())),
-        "feature_dim": FEATURE_DIM,
+        "feature_dim": effective_dim,
         "files_used": used_files,
         "files_skipped": skipped,
         "per_problem": per_problem,
         "per_horizon": per_horizon_block,
         "per_horizon_baseline": primary_baseline,
-        "feature_layout": feature_layout(),
+        "feature_layout": feature_layout(args.feature_set),
         "problem_feature_names": list(PROBLEM_FEATURE_NAMES),
         "problem_feature_mean": problem_mean.tolist(),
         "problem_feature_std": problem_std.tolist(),

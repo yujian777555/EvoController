@@ -227,6 +227,82 @@ zdt4+zdt6 双分片并行 ≈ 13 h wall，全 5 问题 ≈ 65 h。
 
 
 
+## Phase 2.75D 结果（stabilization：harvest 排查 + compact 表示 + 目标对比）
+
+计划：[PHASE2_75D_PLAN.md](PHASE2_75D_PLAN.md)。
+
+### Task 1：harvest 性能瓶颈排查（澄清了一个误判）
+
+**结论：harvest 不慢，也不需要缓存。**
+
+代码审查（`experiments/counterfactual_actions.py:225` `harvest_snapshots`）确认：
+**不做重复 NSGA-II 重算**——每个 (problem, seed) 只跑**一次** 100 代 NSGA-II，在单次循环中
+于指定代数顺手 pickle 快照。算法复杂度 O(generations)，与快照数无关。
+
+`cProfile` 剖析（1 seed × 40 状态 = 58.4s）：
+
+| 项 | 耗时 | 占比 |
+|---|---|---|
+| `harvest_snapshots` 总计 | 58.4s | 100% |
+| └ `NSGAII.step()` × 100 | 57.8s | 99% |
+| └└ `_fast_nondominated_sort` | 56.7s | 97% |
+| └└└ `_dominates`（**988 万次调用**） | 50.7s | 87% |
+| harvest 自身的 snapshot/pickle | **0.6s** | **1%** |
+
+干净吞吐实测（无竞争进程）：**996 ms/快照** ≈ 1 个 run（40s）/ 40 快照。
+
+| 规模 | 实测耗时 |
+|---|---|
+| 100 状态/问题 | 1.7 min |
+| 800 状态/问题（20 runs） | 13 min |
+| 全 5 问题 800 状态/问题 | ~1.1 h（串行）|
+
+**误判溯源**：我在 2.75D 前段报"慢 10 倍 / 13 小时"，那是 harvest 与两个重型
+`evaluate-horizon` 采集进程**争抢 CPU** 的结果，不是 harvest 本身的问题。
+
+**是否需要缓存**：不需要。若要提速，唯一有效杠杆是 `_dominates` 的向量化
+（988 万次 numpy 逐次调用 → 可批量化），但那是**算法级**优化、影响所有阶段
+（所有评估都受同一瓶颈支配），不属于 harvest 专属改造。
+
+### Task 2：`--feature-set {compact,context}` 与目标对比
+
+**实现**（`experiments/build_intervention_dataset_v2.py`）：
+- 新增 `--feature-set {compact,context}`，**默认 compact**（= Phase-2.75D Task 2 要求的
+  回到 v1 紧凑表示；context 保留 76 维旧布局以复现 2.75C 结果）
+- compact = `[state 60][action 4]` = 64 维；同时修复了 npz 写出时 `state_block` /
+  `action_features` 使用固定 context 偏移的 bug（compact 下偏移会错位）
+- 新增测试 `test_compact_feature_set_is_the_default_and_matches_v1_layout`；
+  受影响的两个既有测试改为显式 `--feature-set context`
+
+**目标对比（仅 compact 特征）**：A=`state_mean`、B=`default_action`、C=`future_improvement`，
+同一数据集（4500 样本 / 150 状态）、同架构、同 seed、**共享 state 级切分**
+（120 train / 30 val）。判别性检查（同一模型分别在训练/留出状态上）：
+
+| target | train ρ | val ρ | train hit | val hit |
+|---|---|---|---|---|
+| A `state_mean` | +0.247 | **+0.035** | 0.214 | 0.111 |
+| B `default_action` | +0.211 | **+0.013** | 0.217 | 0.100 |
+| C `future_improvement` | +0.235 | **+0.006** | 0.183 | 0.122 |
+
+**结论（诚实）**：
+
+1. **三种目标在现有语料上不可区分** —— 留出 Spearman 差异（0.006–0.035）远小于噪声。
+2. **全部严重过拟合** —— 训练 ρ ≈ 0.21–0.25，留出 ρ ≈ 0.01–0.04（衰减 ~7–40 倍）。
+   训练侧本身也仅 ~0.25，远低于 Phase 2.75 报告的口径（其 0.58 来自另一套划分与
+   30 个留出状态，且 2.75 的"全部状态"数字 0.57–0.82 **包含训练状态**，不可作为泛化证据）。
+3. **瓶颈是数据量而非目标定义** —— 150 个状态、30 个留出状态（每问题 ~6 个）的统计功效
+   不足以区分目标。这直接支持 Task 3 的扩样。
+4. 附带约束：B（`default_action`）在旧语料上仍退化为 `controller` 基线（旧语料无
+   `default` 候选）；协议修复已在 Task 3 的新采集生效。
+
+### Task 3：pilot 干预采集（进行中）
+
+- **快照 harvest**（zdt1/zdt2/zdt4，100 状态/问题）：已完成，306 个新快照 / **6m23s**
+  （~1.25 s/快照，与 Task 1 测算一致）。现状：zdt1 854、zdt2 356、zdt4 102 可用状态。
+- **干预评估**（`--max-states 100`、12 候选、3 重复、horizons 5/10/20，3 问题并行）：
+  已启动。成本 ≈ 100 × 12 × 3 × 20 = 72,000 代/问题 ≈ **10 h/问题**，3 路并行 ≈ 10 h wall。
+  完成后将用 compact 表示重建数据集，并在**扩大后的留出集**上重跑目标对比。
+
 ## Gate 状态（PHASE2_75_PLAN.md）
 
 | 标准 | 状态 |
