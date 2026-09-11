@@ -884,3 +884,73 @@ def test_aggregate_horizon_merges_bootstraps_and_thirds(
         assert thirds["mid"]["mean_percentile_rank"] is None
         assert thirds["late"]["n_states"] == 1
     assert payload_a["per_problem"]["zdt1"]["2"]["n_states"] == _TINY_STATES
+
+
+def test_horizon_checkpoint_resumes_after_interruption(
+    tiny_horizon_planning: dict[str, Any],
+    tiny_planning_counterfactual: dict[str, Any],
+) -> None:
+    """A killed run resumes from its checkpoint instead of restarting.
+
+    Phase-2.75D: the pilot runs for hours, so each finished state is written
+    to ``.checkpoint_horizon_{problem}.json``. Re-issuing the identical
+    command must skip the finished states and produce the same final payload.
+    """
+    payload = tiny_horizon_planning["payload"]
+    root = tiny_horizon_planning["root"]
+    out_dir = root / "horizon_planning"
+    checkpoint = out_dir / ".checkpoint_horizon_zdt1.json"
+    complete = out_dir / "counterfactual_horizon_zdt1.json"
+
+    # The finished run must have cleaned up after itself.
+    assert complete.is_file()
+    assert not checkpoint.is_file()
+
+    # Simulate an interruption: keep the checkpoint holding the first state
+    # and remove the final artifact.
+    first_state = payload["states"][0]
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "config_key": cfa._horizon_config_key(
+                    cfa.parse_args(_horizon_argv(
+                        out_dir=out_dir,
+                        snapshots_dir=root / "snapshots",
+                        root=root,
+                        controller=tiny_planning_counterfactual["planner_path"],
+                        controller_type="planning",
+                        predictor=tiny_planning_counterfactual["predictor_path"],
+                    )),
+                    "zdt1",
+                    [int(h) for h in _TINY_HORIZONS],
+                    (0.25, 8.0),
+                    np.asarray([1.1, 1.1]),
+                ),
+                # generations recorded by harvest (the branch length is 4)
+                "run_generations": pickle.loads(
+                    (root / "snapshots" / "zdt1__seed1000__gen2.pkl").read_bytes()
+                )["config"]["generations"],
+                "done_files": sorted(
+                    p.name for p in out_dir.parent.joinpath("snapshots").glob("zdt1__*.pkl")
+                )[:1],
+                "states": [first_state],
+            }
+        ),
+        encoding="utf-8",
+    )
+    complete.unlink()
+
+    resumed = cfa.run_evaluate_horizon(
+        cfa.parse_args(_horizon_argv(
+                        out_dir=out_dir,
+                        snapshots_dir=root / "snapshots",
+                        root=root,
+                        controller=tiny_planning_counterfactual["planner_path"],
+                        controller_type="planning",
+                        predictor=tiny_planning_counterfactual["predictor_path"],
+                    ))
+    )
+    assert len(resumed["states"]) == len(payload["states"])
+    assert resumed["summary"]["n_states"] == payload["summary"]["n_states"]
+    # Checkpoint is cleaned up again once the run completes.
+    assert not checkpoint.is_file()

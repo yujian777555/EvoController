@@ -1612,6 +1612,64 @@ def _horizon_summary(
     return summary
 
 
+def _horizon_config_key(
+    args: argparse.Namespace,
+    problem_name: str,
+    horizons: Sequence[int],
+    pm_mult_range: tuple[float, float],
+    ref_point: np.ndarray,
+) -> dict[str, Any]:
+    """Fingerprint identifying one ``evaluate-horizon`` invocation.
+
+    A checkpoint is only reused when this fingerprint matches exactly, so
+    changing any protocol knob (horizons, candidates, reps, seeds,
+    controller/encoder/predictor, snapshot set) starts a fresh run instead of
+    silently mixing incompatible state records.
+    """
+    return {
+        "problem": str(problem_name),
+        "controller": str(args.controller),
+        "controller_type": str(args.controller_type),
+        "predictor": str(args.predictor) if args.predictor is not None else None,
+        "encoder": str(args.encoder),
+        "snapshots_dir": str(args.snapshots_dir),
+        "horizons": [int(h) for h in horizons],
+        "n_alternatives": int(args.n_alternatives),
+        "n_reps": int(args.n_reps),
+        "include_default_action": bool(args.include_default_action),
+        "max_states": int(args.max_states),
+        "pm_mult_range": [float(pm_mult_range[0]), float(pm_mult_range[1])],
+        "ref_point": [float(ref_point[0]), float(ref_point[1])],
+        "n_reference_points": int(args.n_reference_points),
+    }
+
+
+def _write_horizon_checkpoint(
+    path: Path,
+    config_key: dict[str, Any],
+    run_generations: int | None,
+    done_files: set[str],
+    states: list[dict[str, Any]],
+) -> None:
+    """Atomically persist the in-progress state records of one problem.
+
+    The file is written to ``<path>.tmp`` and then replaced into place, so a
+    crash (or power loss) mid-write cannot leave a truncated checkpoint that
+    the next run would refuse to parse.
+    """
+    payload = {
+        "config_key": config_key,
+        "run_generations": run_generations,
+        "done_files": sorted(done_files),
+        "states": states,
+    }
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+    )
+    tmp_path.replace(path)
+
+
 def run_evaluate_horizon(args: argparse.Namespace) -> dict[str, Any]:
     """Evaluate every candidate over ``--horizons`` generations per state.
 
@@ -1647,9 +1705,39 @@ def run_evaluate_horizon(args: argparse.Namespace) -> dict[str, Any]:
         f"alternatives={args.n_alternatives}, reps={args.n_reps}, "
         f"horizons={horizons} (generations per branch={horizons[-1]})"
     )
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"counterfactual_horizon_{problem.name}.json"
+    checkpoint_path = out_dir / f".checkpoint_horizon_{problem.name}.json"
+    config_key = _horizon_config_key(
+        args, problem.name, horizons, pm_mult_range, ref_point
+    )
+
+    # Resume support: a long run (hours) must not lose its finished states to
+    # a shutdown, so each completed state is appended to a checkpoint that the
+    # next invocation of the same command picks up.
     states: list[dict[str, Any]] = []
+    done_files: set[str] = set()
     run_generations: int | None = None
+    if checkpoint_path.is_file():
+        try:
+            ckpt = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            ckpt = {}
+        if ckpt.get("config_key") == config_key:
+            states = list(ckpt.get("states", []))
+            done_files = set(ckpt.get("done_files", []))
+            run_generations = ckpt.get("run_generations")
+            print(
+                f"[resume] checkpoint found: {len(states)} states already done, "
+                f"{len(files) - len(done_files)} remaining"
+            )
+        else:
+            print("[resume] checkpoint config mismatch; starting fresh")
+
     for path in files:
+        if path.name in done_files:
+            continue
         with path.open("rb") as fh:
             payload = pickle.load(fh)
         cfg = payload.get("config", {})
@@ -1675,13 +1763,18 @@ def run_evaluate_horizon(args: argparse.Namespace) -> dict[str, Any]:
             include_default_action=bool(args.include_default_action),
         )
         states.append(record)
+        done_files.add(path.name)
+        _write_horizon_checkpoint(
+            checkpoint_path, config_key, run_generations, done_files, states
+        )
         ranks = " ".join(
             f"h{h}={record['per_horizon'][str(h)]['controller_percentile_rank']:.3f}"
             for h in horizons
         )
         print(
             f"[evaluate-horizon] {problem.name} seed={record['seed']} "
-            f"gen={record['generation']} {ranks}"
+            f"gen={record['generation']} {ranks} "
+            f"[{len(states)}/{len(files)}]"
         )
 
     payload = {
@@ -1712,11 +1805,10 @@ def run_evaluate_horizon(args: argparse.Namespace) -> dict[str, Any]:
             },
         },
     }
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"counterfactual_horizon_{problem.name}.json"
     with out_path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2, ensure_ascii=False)
+    if checkpoint_path.is_file():
+        checkpoint_path.unlink()
     print(f"[done] wrote {len(states)} state records -> {out_path}")
     return payload
 
