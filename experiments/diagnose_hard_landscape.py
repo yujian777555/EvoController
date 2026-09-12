@@ -27,10 +27,10 @@ action, index 1 the NSGA-II default action (``kind="default"``, disable with
 ``--no-include-default-action``), then the sampled alternatives — the same
 construction ``evaluate-horizon`` uses, reused from
 ``experiments/counterfactual_actions.py``. The branch RNG is this script's own
-deterministic scheme, ``Generator(PCG64([snapshot_hash_seed, candidate_index,
-rep]))``; it differs from ``evaluate-horizon``'s ``crc32``-derived branch seeds,
-so these traces are reproducible but **not** numerically comparable to the
-intervention files.
+deterministic scheme, ``Generator(PCG64([crc32(hash_seed|candidate_index),
+rep]))`` — **identical** to ``counterfactual_actions.evaluate-horizon``
+(Phase-2.8 Task 4 unified the two protocols), so these traces are numerically
+comparable to the intervention files.
 
 Output (``--out``, default ``results/phase2_75d/hard_landscape_diagnosis.json``)::
 
@@ -89,6 +89,7 @@ from experiments.counterfactual_actions import (
     _build_candidate_actions,
     _load_controller_and_encoder,
     _select_snapshot_files,
+    _branch_seed,
     _snapshot_hash_seed,
 )
 from metrics.indicators import diversity_spread, hypervolume, igd
@@ -429,8 +430,11 @@ def diagnose_state(
                 seed=0,
             )
             algorithm.restore_state(snapshot)
+            # Unified RNG protocol (Phase 2.8 Task 4): identical derivation to
+            # ``counterfactual_actions.evaluate-horizon`` so branch outcomes are
+            # reproducible across the two analyses.
             algorithm.rng = np.random.Generator(
-                np.random.PCG64([hash_seed, k, rep])
+                np.random.PCG64([_branch_seed(hash_seed, k), rep])
             )
             previous_x = algorithm.population_x
             hv_values = [

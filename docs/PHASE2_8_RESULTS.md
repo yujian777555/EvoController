@@ -121,6 +121,60 @@ action 通道携带的信息量只够支撑"极其微弱的偏好信号"（AUC 0
    - 延长 horizon 至 50–100 代（当前 h=20 的 SNR 仍在上升，未见饱和）；
    - 增加重复数（当前 3）以降低 rollout 噪声占比。
 
+## Task 2.1（Action Signal Identifiability Analysis）—— 已完成
+
+计划：[PHASE2_8_TASK2_1_ACTION_SIGNAL_ANALYSIS_PLAN.md](PHASE2_8_TASK2_1_ACTION_SIGNAL_ANALYSIS_PLAN.md)。
+工件（计划要求的路径）：`results/phase2_8/action_identifiability.json`
+（工具：`experiments/action_identifiability_audit.py`，含分问题分解）。
+
+### Experiment 1–3：action 方差 / rollout 噪声 / SNR（分问题）
+
+| problem | h=5 | h=10 | **h=20** | h=20 中位 SNR | h=20 状态中 SNR>1 占比 |
+|---|---|---|---|---|---|
+| zdt1 | 0.93 | 2.14 | **4.80** | 8.45 | 0.97 |
+| zdt2 | 2.11 | 3.56 | **6.21** | 6.30 | 0.90 |
+| zdt4 | 1.94 | 3.17 | **3.79** | 2.53 | 0.75 |
+| zdt6 | 1.27 | 2.08 | **5.56** | 7.30 | 0.87 |
+| 池化 | 1.88 | 3.07 | **4.82** | 6.27 | 0.89 |
+
+**SNR 在所有问题、所有 horizon 上均随 horizon 单调上升，且 h=20 时四个问题全部 > 1。**
+
+### Experiment 4：action-only baseline
+
+见上文"Task 2 报告"的子任务 2/3（同一工件）：
+action-only ρ 0.001–0.059、pairwise AUC 0.498–0.525、win-count Kendall 0.14–0.17；
+**state-only 在构造上无法做 within-state 排序**。
+
+### Decision Gate 判定：**Case B**
+
+计划书的分支：
+
+- **Case A**：SNR 低 **且** oracle 排序随机 ⇒ "action credit assignment 从根本上受限于弱干预信号" ⇒ 转向机制/分析论文
+- **Case B**：SNR 高 ⇒ "信号存在，但当前表示/目标不足" ⇒ 转向动作表示重设计 / 排序目标 / 交互模型
+
+**实测 SNR 高（3.79–6.21，全部问题 h=20 > 1）⇒ 判定为 Case B。**
+
+**但必须附带一条由本次审计数据得出的限定**：Case B 建议的三条改进路径
+（表示重设计 / 排序目标 / 交互模型）**只在"重设计表示"这一条上有实质空间**。
+理由是：非神经 oracle 已经界定了**当前表示的**上界——在 4 维 action + 60 维 state 下，
+最强树模型的 pairwise AUC 仅 0.52、action-only 与 concat 的排序质量无差别（0.059 vs 0.060）。
+因此：
+
+- **排序目标**（ranking objectives）：能把 MLP 的 action sensitivity 从 0.001 提升到
+  非神经基线的水平（~0.21），但**不能**把 pairwise 判别从 0.52 提升到可用水平——
+  上界由数据/表示决定，不由损失函数决定；
+- **交互模型**：同上，只影响优化效率，不改变可辨识性上界；
+- **动作表示重设计**：**唯一**能改变上界的路径。当前 4 维（multiplier / exploration /
+  2×one-hot）显然不足以刻画"此状态下该动作的效果"，应优先尝试
+  （a）动作的**结果签名**，（b）**极端的动作对比**干预以放大可辨识差异，
+  （c）更长 horizon（h=20 的 SNR 仍在上升，未饱和）。
+
+**结论**：Phase 2.8 Task 2.1 的形式判定为 Case B；但本审计同时给出一个更强的
+操作性结论——**在现有表示下，Case B 的三条建议中有两条（排序目标、交互模型）
+已被非神经上界证明无实质空间**，因此下一步应当只投入**动作表示/干预设计**。
+
+
+
 ## 对后续的直接含义（Task 1 结论）
 
 1. **Task 2（排序损失）与 Task 3（action encoder）应当降级为"次要"**：

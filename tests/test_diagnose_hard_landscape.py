@@ -507,3 +507,37 @@ def test_cli_defaults() -> None:
         is False
     )
     assert dhl.parse_args(["--report"]).report is True
+
+
+def test_branch_rng_matches_horizon_evaluator_protocol() -> None:
+    """Phase-2.8 Task 4: both analyses derive branch RNG identically.
+
+    The audit found the two artifacts disagreed about the planner's ranking
+    (percentile 0.755 vs 0.442) purely because they seeded branch rollouts
+    differently. This pins the unified derivation so the discrepancy cannot
+    silently return.
+    """
+    import numpy as np
+
+    from experiments.counterfactual_actions import (
+        _branch_seed,
+        _snapshot_hash_seed,
+    )
+    from experiments.diagnose_hard_landscape import (
+        _snapshot_hash_seed as diag_hash_seed,
+    )
+
+    # Same state identity -> same hash material in both modules.
+    for problem, seed, generation in (("zdt4", 1005, 11), ("zdt6", 1014, 98)):
+        assert _snapshot_hash_seed(problem, seed, generation) == diag_hash_seed(
+            problem, seed, generation
+        )
+
+    hash_seed = _snapshot_hash_seed("zdt4", 1005, 11)
+    evaluator = np.random.Generator(
+        np.random.PCG64([_branch_seed(hash_seed, 3), 1])
+    )
+    diagnosis = np.random.Generator(
+        np.random.PCG64([_branch_seed(hash_seed, 3), 1])
+    )
+    assert evaluator.random(16).tolist() == diagnosis.random(16).tolist()

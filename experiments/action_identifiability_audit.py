@@ -49,13 +49,13 @@ from controller.advantage_predictor import ranking_metrics
 
 DEFAULT_DATASET_DIR = "results/phase2_75d/dataset_final"
 DEFAULT_SPLIT_JSON = "results/phase2_75d/target_comparison_final.json"
-DEFAULT_OUT = "results/phase2_75d/action_identifiability.json"
+DEFAULT_OUT = "results/phase2_8/action_identifiability.json"
 ACTION_FEATURES = 4
 
 
 def _load(dataset_dir: Path, target: str) -> dict[str, Any]:
     """Concatenate one baseline's npz files into flat arrays plus state keys."""
-    xs, ys, hs, ks, rs, states = [], [], [], [], [], []
+    xs, ys, hs, ks, rs, states, problems = [], [], [], [], [], [], []
     for path in sorted((dataset_dir / target).glob("intervention_dataset_*.npz")):
         data = np.load(path, allow_pickle=True)
         xs.append(data["X"])
@@ -67,6 +67,7 @@ def _load(dataset_dir: Path, target: str) -> dict[str, Any]:
             f"{data['problem'][i]}|{int(data['seed'][i])}|{int(data['generation'][i])}"
             for i in range(len(data["X"]))
         )
+        problems.extend(str(p) for p in data["problem"])
     return {
         "X": np.concatenate(xs),
         "y": np.concatenate(ys),
@@ -74,6 +75,7 @@ def _load(dataset_dir: Path, target: str) -> dict[str, Any]:
         "kind": np.concatenate(ks),
         "rewards": np.concatenate(rs),
         "state": states,
+        "problem": problems,
     }
 
 
@@ -345,9 +347,23 @@ def main(argv: Sequence[str] | None = None) -> dict[str, Any]:
     is_val = np.asarray([s in val_keys for s in data["state"]])
 
     started = time.perf_counter()
+    # Per-problem breakdown: the Phase-2.8 gate is evaluated across problems
+    # (a pooled SNR can hide a problem whose actions are indistinguishable).
+    per_problem: dict[str, Any] = {}
+    problems = np.asarray(data["problem"])
+    for name in sorted(set(problems.tolist())):
+        mask = problems == name
+        subset = {key: value for key, value in data.items() if key != "state"}
+        subset["state"] = [s for s, keep in zip(data["state"], mask) if keep]
+        for key in ("X", "y", "horizon", "kind", "rewards"):
+            subset[key] = data[key][mask]
+        per_problem[name] = {
+            "task1_action_effect_variance": task1_variance(subset, args.horizons)
+        }
     report: dict[str, Any] = {
         "config": vars(args),
         "task1_action_effect_variance": task1_variance(data, args.horizons),
+        "task1_by_problem": per_problem,
         "task2_action_only_learnability": task2_action_only(
             data, is_val, args.horizons, args.seed
         ),

@@ -1,0 +1,25 @@
+[done] wrote results\phase2_8\action_identifiability.json
+
+=== Task 1: action effect variance / SNR ===
+  h= 5: action_var=0.000537 noise=0.000286 SNR=1.88 (median per-state 1.70, 0.66 of states >1)
+  h=10: action_var=0.001726 noise=0.000562 SNR=3.07 (median per-state 3.00, 0.78 of states >1)
+  h=20: action_var=0.005892 noise=0.001221 SNR=4.82 (median per-state 6.27, 0.89 of states >1)
+
+=== Task 2: action-only vs state-only vs concat (val Spearman) ===
+  action_only  linear_ols               h5=0.05930025549571896 h10=0.030841267561499238 h20=0.04402777739557491
+  action_only  random_forest            h5=0.0014759546441635186 h10=0.04591971932974892 h20=0.019243040658294967
+  action_only  hist_gradient_boosting   h5=0.02260179419205686 h10=0.05892294959541808 h20=0.05493472926205116
+  state_only   linear_ols               h5=None h10=None h20=None
+  state_only   random_forest            h5=None h10=None h20=None
+  state_only   hist_gradient_boosting   h5=None h10=None h20=None
+  concat       linear_ols               h5=0.06020793144658455 h10=0.03056607948237637 h20=0.043426039076301326
+  concat       random_forest            h5=0.02432823259713586 h10=0.04805485645858802 h20=0.034731981849814304
+  concat       hist_gradient_boosting   h5=0.04377817267123886 h10=0.0422648276946689 h20=0.012365343965924536
+
+=== Task 3: pairwise ranking (val) ===
+  h= 5 logistic       acc=0.5215 auc=0.5202787135518816 kendall=0.15754426520373394 n_states=174
+  h= 5 random_forest  acc=0.5032 auc=0.5020186175318899 kendall=0.14769547685061993 n_states=174
+  h=10 logistic       acc=0.5369 auc=0.5226807747501481 kendall=0.16307688773748238 n_states=176
+  h=10 random_forest  acc=0.4996 auc=0.4984924417324891 kendall=0.14866646875845618 n_states=176
+  h=20 logistic       acc=0.5223 auc=0.5247760443183747 kendall=0.142502657640549 n_states=184
+  h=20 random_forest  acc=0.5066 auc=0.5120600202480766 kendall=0.16654746809618046 n_states=184
