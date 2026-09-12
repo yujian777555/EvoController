@@ -1,0 +1,18 @@
+[train] state_mean: 960 train states, 9600 rows, 9600 pairs -> results\phase2_75d\models_final\model_state_mean.pt
+[train] default_action: 960 train states, 9600 rows, 9600 pairs -> results\phase2_75d\models_final\model_default_action.pt
+[train] future_improvement: 960 train states, 9600 rows, 9600 pairs -> results\phase2_75d\models_final\model_future_improvement.pt
+target                    h      rho      tau     hit    regret      gap
+default_action            5    0.004    0.004   0.096     0.052    0.055
+default_action           10    0.012    0.008   0.104     0.057    0.059
+default_action           20    0.019    0.011   0.092     0.063    0.064
+default_action          all    0.012    0.008   0.097     0.057    0.060
+future_improvement        5   -0.021   -0.017   0.087     0.058    0.055
+future_improvement       10   -0.011   -0.007   0.092     0.060    0.059
+future_improvement       20   -0.041   -0.026   0.100     0.064    0.064
+future_improvement      all   -0.025   -0.017   0.093     0.061    0.060
+state_mean                5    0.001   -0.001   0.125     0.056    0.055
+state_mean               10    0.034    0.028   0.075     0.056    0.059
+state_mean               20   -0.021   -0.011   0.071     0.069    0.064
+state_mean              all    0.005    0.006   0.090     0.060    0.060
+[best by spearman] {"5": "default_action", "10": "state_mean", "20": "default_action", "overall": "default_action"}
+[done] wrote results\phase2_75d\target_comparison_final.json
