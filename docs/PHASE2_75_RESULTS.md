@@ -303,6 +303,38 @@ zdt4+zdt6 双分片并行 ≈ 13 h wall，全 5 问题 ≈ 65 h。
   已启动。成本 ≈ 100 × 12 × 3 × 20 = 72,000 代/问题 ≈ **10 h/问题**，3 路并行 ≈ 10 h wall。
   完成后将用 compact 表示重建数据集，并在**扩大后的留出集**上重跑目标对比。
 
+### Task 4/5 流水线预验证（干跑，pilot 部分数据 162 状态）
+
+在 pilot 完成前，用 checkpoint 中的 162 个已完成状态（zdt1 56 / zdt2 53 / zdt4 53）
+**干跑完整链路**（输出到 `results/phase2_75d/dryrun/`），确认三个工具能正确衔接：
+
+| 步骤 | 结果 |
+|---|---|
+| checkpoint → 中间产物 | ✅ 3 个问题各拼成与最终产物一致的 schema |
+| `build_intervention_dataset_v2 --feature-set compact` | ✅ 5832 样本 / 162 状态，**4 种基线** |
+| `analyze_intervention_signal` | ✅ per-problem + pooled 信号统计 |
+| `compare_advantage_targets` | ✅ 3 目标 × 3 horizon + overall |
+
+**两个重要发现：**
+
+1. **Target B 首次真正成立**：新采集的候选集含 `default` 候选，builder 报告的
+   `rules={'exact': N}`（legacy 语料是 `{'controller': N}` 的退化情形）。
+   且 `default_action` 基线的均值从 ~0 变为 **+0.011**——说明采样候选平均略优于
+   NSGA-II 默认动作，该基线现在是有信息的参照点。
+
+2. **zdt4 的 oracle_hit 是并列假象**：干跑数据显示 zdt4 在 h=5 的 oracle_hit 高达
+   **0.887**，但同格点的 action_variance 仅 0.0001、SNR 0.95——即候选结果几乎全相同，
+   "命中最优"由**大量 tie** 造成，不是规划能力（12 候选随机基线为 0.083）。
+   **后续报告必须把 oracle_hit 与 action_variance 并读**，否则会严重高估。
+
+干跑的目标对比（仅 162 状态、130/32 训练/验证划分，**不足以判定目标优劣**）：
+overall Spearman 依次为 `state_mean` 0.107、`default_action` 0.059、
+`future_improvement` 0.035。**待 pilot 完成后用完整的 300 状态重跑再下结论。**
+
+> 注意：干跑时 `compare_advantage_targets` 的默认 `--model-dir results/phase2_75d/models`
+> 覆盖了 Task 2 的模型工件（可复现，无实质损失）；正式运行将显式指定独立的
+> `--model-dir` 以避免混淆。
+
 ## Gate 状态（PHASE2_75_PLAN.md）
 
 | 标准 | 状态 |
