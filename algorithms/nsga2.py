@@ -43,6 +43,29 @@ def _dominates(a: np.ndarray, b: np.ndarray) -> bool:
     return bool(np.all(a <= b) and np.any(a < b))
 
 
+def _dominance_matrix(f: np.ndarray) -> np.ndarray:
+    """Pairwise Pareto-dominance matrix (vectorized ``_dominates``).
+
+    Phase-2.75D: the scalar ``_dominates`` loop dominated the runtime of every
+    evaluation (98% of a counterfactual branch step, ~10M NumPy calls per
+    100-generation run). The relation is computed here in one broadcast so the
+    cost is O(n_objs * n^2) NumPy work instead of n^2 Python-level calls.
+
+    Args:
+        f: Objective matrix of shape ``(n, n_objs)`` (minimization).
+
+    Returns:
+        Boolean matrix ``d`` of shape ``(n, n)`` where ``d[p, q]`` is True iff
+        row ``p`` dominates row ``q`` (diagonal is False). Identical to
+        ``_dominates(f[p], f[q])`` for every pair.
+    """
+    no_worse = np.all(f[:, None, :] <= f[None, :, :], axis=2)
+    strictly_better = np.any(f[:, None, :] < f[None, :, :], axis=2)
+    dominates = no_worse & strictly_better
+    np.fill_diagonal(dominates, False)
+    return dominates
+
+
 def _fast_nondominated_sort(f: np.ndarray) -> list[list[int]]:
     """Fast non-dominated sort (Deb et al. 2002, Sec. III-A).
 
@@ -54,17 +77,15 @@ def _fast_nondominated_sort(f: np.ndarray) -> list[list[int]]:
         Front 0 is the non-dominated (rank-1) set. Runs in O(n_objs * n^2).
     """
     n = f.shape[0]
-    dominated_set: list[list[int]] = [[] for _ in range(n)]  # S_p in the paper
-    domination_count = np.zeros(n, dtype=np.int64)  # n_p in the paper
+    dominates = _dominance_matrix(f)
+    # ``dominated_set`` and ``domination_count`` reproduce Deb's S_p and n_p
+    # using the identical ordering the scalar implementation produced (q in
+    # ascending index order), so front membership *and* intra-front order are
+    # bit-identical to the pre-Phase-2.75D implementation.
+    dominated_set: list[np.ndarray] = [np.flatnonzero(dominates[p]) for p in range(n)]
+    domination_count = dominates.sum(axis=0).astype(np.int64)
     fronts: list[list[int]] = [[]]
     for p in range(n):
-        for q in range(n):
-            if p == q:
-                continue
-            if _dominates(f[p], f[q]):
-                dominated_set[p].append(q)
-            elif _dominates(f[q], f[p]):
-                domination_count[p] += 1
         if domination_count[p] == 0:
             fronts[0].append(p)
     current = fronts[0]
@@ -74,7 +95,7 @@ def _fast_nondominated_sort(f: np.ndarray) -> list[list[int]]:
             for q in dominated_set[p]:
                 domination_count[q] -= 1
                 if domination_count[q] == 0:
-                    next_front.append(q)
+                    next_front.append(int(q))
         if next_front:
             fronts.append(next_front)
         current = next_front

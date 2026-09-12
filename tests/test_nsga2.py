@@ -404,3 +404,76 @@ def test_determinism_same_seed_same_full_override_sequence() -> None:
         populations.append(algo.population_x)
     np.testing.assert_array_equal(fronts[0], fronts[1])
     np.testing.assert_array_equal(populations[0], populations[1])
+
+
+def _fast_nondominated_sort_reference(f: np.ndarray) -> list[list[int]]:
+    """Pre-Phase-2.75D scalar implementation, kept verbatim as a oracle.
+
+    Used only by the equivalence test below: the vectorized
+    :func:`algorithms.nsga2._fast_nondominated_sort` must reproduce both the
+    front membership and the intra-front ordering of this scalar version.
+    """
+    import numpy as np
+
+    from algorithms.nsga2 import _dominates
+
+    n = f.shape[0]
+    dominated_set: list[list[int]] = [[] for _ in range(n)]
+    domination_count = np.zeros(n, dtype=np.int64)
+    fronts: list[list[int]] = [[]]
+    for p in range(n):
+        for q in range(n):
+            if p == q:
+                continue
+            if _dominates(f[p], f[q]):
+                dominated_set[p].append(q)
+            elif _dominates(f[q], f[p]):
+                domination_count[p] += 1
+        if domination_count[p] == 0:
+            fronts[0].append(p)
+    current = fronts[0]
+    while current:
+        next_front: list[int] = []
+        for p in current:
+            for q in dominated_set[p]:
+                domination_count[q] -= 1
+                if domination_count[q] == 0:
+                    next_front.append(q)
+        if next_front:
+            fronts.append(next_front)
+        current = next_front
+    return fronts
+
+
+@pytest.mark.parametrize("n", [1, 2, 5, 17, 40])
+def test_vectorized_sort_matches_scalar_reference(n: int) -> None:
+    """Phase-2.75D: the vectorized sort is bit-identical to the scalar one."""
+    from algorithms.nsga2 import _fast_nondominated_sort
+
+    rng = np.random.default_rng(n)
+    for trial in range(5):
+        # Continuous objectives exercise strict dominance; the rounded copy
+        # injects exact ties, which is where ordering bugs would surface.
+        f = rng.random((n, 2)) if trial % 2 == 0 else np.round(rng.random((n, 2)), 1)
+        assert _fast_nondominated_sort(f) == _fast_nondominated_sort_reference(f), (
+            n,
+            trial,
+        )
+
+
+def test_vectorized_sort_matches_reference_on_real_population() -> None:
+    """Equivalence also holds for actual NSGA-II objective matrices."""
+    from algorithms.nsga2 import _fast_nondominated_sort
+
+    stub = Sphere2DProblemStub()
+    algorithm = NSGAII(stub, pop_size=40, operators=OperatorConfig(), seed=3)
+    algorithm.initialize()
+    assert _fast_nondominated_sort(algorithm.population_f) == (
+        _fast_nondominated_sort_reference(algorithm.population_f)
+    )
+    for _ in range(5):
+        algorithm.step()
+        combined = algorithm.population_f
+        assert _fast_nondominated_sort(combined) == (
+            _fast_nondominated_sort_reference(combined)
+        )
