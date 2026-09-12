@@ -699,3 +699,26 @@ def test_ranking_metrics_ties_and_undefined_groups() -> None:
     assert single["regret_mean"] == pytest.approx(0.0)
     with pytest.raises(ValueError, match="does not match"):
         ranking_metrics(np.zeros((2, 3)), np.zeros((3, 2)))
+
+
+def test_ranking_metrics_top_k_hit_rate() -> None:
+    """Phase-2.75D: top-k hit rate generalizes oracle-hit beyond k=1."""
+    from controller.advantage_predictor import ranking_metrics
+
+    realized = np.array([[5.0, 4.0, 3.0, 2.0, 1.0]])
+
+    perfect = ranking_metrics(realized.copy(), realized)["top_k_hit_rate"]
+    assert perfect == {"1": 1.0, "3": 1.0, "5": 1.0}
+
+    # Pick the realized-worst action: outside top-1 and top-3, inside top-5.
+    worst = ranking_metrics(np.array([[1.0, 2.0, 3.0, 4.0, 5.0]]), realized)
+    assert worst["top_k_hit_rate"] == {"1": 0.0, "3": 0.0, "5": 1.0}
+    assert worst["oracle_hit_rate"] == 0.0
+
+    # Pick the middle action: inside top-3, outside top-1.
+    middle = ranking_metrics(np.array([[1.0, 2.0, 9.0, 4.0, 5.0]]), realized)
+    assert middle["top_k_hit_rate"] == {"1": 0.0, "3": 1.0, "5": 1.0}
+
+    # With fewer candidates than k, the hit is capped at the group size.
+    small = ranking_metrics(np.array([[1.0, 2.0]]), np.array([[2.0, 1.0]]))
+    assert small["top_k_hit_rate"] == {"1": 0.0, "3": 1.0, "5": 1.0}

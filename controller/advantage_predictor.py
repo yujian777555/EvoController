@@ -39,6 +39,9 @@ DEFAULT_ADVANTAGE_HORIZONS: tuple[int, ...] = (5, 10, 20)
 #: Minimum candidates per state for a rank correlation to be defined.
 MIN_GROUP_SIZE = 3
 
+#: Top-k values reported by :func:`ranking_metrics` as ``top_k_hit_rate``.
+TOP_K_VALUES: tuple[int, ...] = (1, 3, 5)
+
 
 def hinge_ranking_loss(
     pred_pos: torch.Tensor, pred_neg: torch.Tensor, margin: float = 0.0
@@ -138,12 +141,23 @@ def ranking_metrics(pred: np.ndarray, realized: np.ndarray) -> dict[str, Any]:
     hits: list[float] = []
     regrets: list[float] = []
     gaps: list[float] = []
+    top_k_hits: dict[int, list[float]] = {k: [] for k in TOP_K_VALUES}
     for row_pred, row_real in zip(pred_matrix, realized_matrix):
         best = int(np.argmax(row_real))
         chosen = int(np.argmax(row_pred))
         hits.append(1.0 if best == chosen else 0.0)
         regrets.append(float(row_real[best] - row_real[chosen]))
         gaps.append(float(row_real[best] - row_real.mean()))
+        # Top-k hit: is the model's pick among the k best realized actions?
+        # Rank uses descending realized order with ties broken by the lowest
+        # candidate index (``np.argsort(-realized, kind="stable")``), matching
+        # the ``np.argmax`` tie convention used for ``oracle_hit``.
+        order = np.argsort(-row_real, kind="stable")
+        realized_rank_of_chosen = int(np.flatnonzero(order == chosen)[0])
+        for k in TOP_K_VALUES:
+            top_k_hits[k].append(
+                1.0 if realized_rank_of_chosen < min(k, row_real.size) else 0.0
+            )
         if row_pred.size < MIN_GROUP_SIZE:
             continue
         if np.all(row_pred == row_pred[0]) or np.all(row_real == row_real[0]):
@@ -182,6 +196,10 @@ def ranking_metrics(pred: np.ndarray, realized: np.ndarray) -> dict[str, Any]:
         "regret_mean": float(np.mean(regrets)) if regrets else None,
         "regret_median": float(np.median(regrets)) if regrets else None,
         "oracle_gap_mean": float(np.mean(gaps)) if gaps else None,
+        "top_k_hit_rate": {
+            str(k): (float(np.mean(values)) if values else None)
+            for k, values in top_k_hits.items()
+        },
     }
 
 
