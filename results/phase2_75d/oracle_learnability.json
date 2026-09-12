@@ -1,0 +1,217 @@
+{
+  "config": {
+    "dataset_dir": "results/phase2_75d/dataset_final",
+    "split_json": "results/phase2_75d/target_comparison_final.json",
+    "out": "results/phase2_75d/oracle_learnability.json",
+    "targets": [
+      "state_mean"
+    ],
+    "seed": 0
+  },
+  "split": {
+    "n_states_train": 960,
+    "n_states_val": 240
+  },
+  "models": {
+    "state_mean": {
+      "n_samples": 43200,
+      "per_model": {
+        "linear_ols": {
+          "per_horizon": {
+            "5": {
+              "n_groups": 240,
+              "spearman_mean": 0.06020793144658455,
+              "spearman_std": 0.322653508893008,
+              "kendall_mean": 0.04930250625974847,
+              "kendall_std": 0.24416475724132813,
+              "significant_fraction": 0.04597701149425287,
+              "oracle_hit_rate": 0.1,
+              "regret_mean": 0.05009170408793019,
+              "regret_median": 0.009240925529985074,
+              "oracle_gap_mean": 0.05518161792785537,
+              "top_k_hit_rate": {
+                "1": 0.1,
+                "3": 0.2875,
+                "5": 0.45
+              },
+              "action_sensitivity_ratio": 0.0334646011082131,
+              "mean_within_state_pred_std": 0.0010169107083545204,
+              "mean_within_state_real_std": 0.030387653660241702
+            },
+            "10": {
+              "n_groups": 240,
+              "spearman_mean": 0.03056607948237637,
+              "spearman_std": 0.3174721887880135,
+              "kendall_mean": 0.020406771566391015,
+              "kendall_std": 0.24327367018281806,
+              "significant_fraction": 0.05113636363636364,
+              "oracle_hit_rate": 0.08333333333333333,
+              "regret_mean": 0.0578835331670855,
+              "regret_median": 0.008982658624481757,
+              "oracle_gap_mean": 0.05927554974656278,
+              "top_k_hit_rate": {
+                "1": 0.08333333333333333,
+                "3": 0.25416666666666665,
+                "5": 0.425
+              },
+              "action_sensitivity_ratio": 0.03410254560010789,
+              "mean_within_state_pred_std": 0.0011294541778111816,
+              "mean_within_state_real_std": 0.03311935100257173
+            },
+            "20": {
+              "n_groups": 240,
+              "spearman_mean": 0.043426039076301326,
+              "spearman_std": 0.29979189420313873,
+              "kendall_mean": 0.035203385661203075,
+              "kendall_std": 0.2199288679533709,
+              "significant_fraction": 0.02717391304347826,
+              "oracle_hit_rate": 0.09166666666666666,
+              "regret_mean": 0.06339355070718153,
+              "regret_median": 0.018626375979957803,
+              "oracle_gap_mean": 0.06443623126334329,
+              "top_k_hit_rate": {
+                "1": 0.09166666666666666,
+                "3": 0.225,
+                "5": 0.3958333333333333
+              },
+              "action_sensitivity_ratio": 0.026355970990437485,
+              "mean_within_state_pred_std": 0.0008868197291660593,
+              "mean_within_state_real_std": 0.03364777300323394
+            }
+          },
+          "wall_time_sec": 1.4742168999999947
+        },
+        "random_forest": {
+          "per_horizon": {
+            "5": {
+              "n_groups": 240,
+              "spearman_mean": 0.02432823259713586,
+              "spearman_std": 0.3013085195659288,
+              "kendall_mean": 0.02247956932167584,
+              "kendall_std": 0.22804146912840936,
+              "significant_fraction": 0.028735632183908046,
+              "oracle_hit_rate": 0.0875,
+              "regret_mean": 0.060739587756226704,
+              "regret_median": 0.010246429637604332,
+              "oracle_gap_mean": 0.05518161792785537,
+              "top_k_hit_rate": {
+                "1": 0.0875,
+                "3": 0.2875,
+                "5": 0.4666666666666667
+              },
+              "action_sensitivity_ratio": 0.22571655653806155,
+              "mean_within_state_pred_std": 0.006858996545460979,
+              "mean_within_state_real_std": 0.030387653660241702
+            },
+            "10": {
+              "n_groups": 240,
+              "spearman_mean": 0.04805485645858802,
+              "spearman_std": 0.2946603530261908,
+              "kendall_mean": 0.03474575218379401,
+              "kendall_std": 0.2211966355715997,
+              "significant_fraction": 0.017045454545454544,
+              "oracle_hit_rate": 0.09583333333333334,
+              "regret_mean": 0.05162723888743496,
+              "regret_median": 0.006807284685794803,
+              "oracle_gap_mean": 0.05927554974656278,
+              "top_k_hit_rate": {
+                "1": 0.09583333333333334,
+                "3": 0.2916666666666667,
+                "5": 0.4708333333333333
+              },
+              "action_sensitivity_ratio": 0.21991724803822757,
+              "mean_within_state_pred_std": 0.0072835165292976884,
+              "mean_within_state_real_std": 0.03311935100257173
+            },
+            "20": {
+              "n_groups": 240,
+              "spearman_mean": 0.034731981849814304,
+              "spearman_std": 0.3255324686836978,
+              "kendall_mean": 0.021275602364063628,
+              "kendall_std": 0.24391990955064743,
+              "significant_fraction": 0.08152173913043478,
+              "oracle_hit_rate": 0.075,
+              "regret_mean": 0.06117138847542038,
+              "regret_median": 0.016429608537945825,
+              "oracle_gap_mean": 0.06443623126334329,
+              "top_k_hit_rate": {
+                "1": 0.075,
+                "3": 0.25,
+                "5": 0.4166666666666667
+              },
+              "action_sensitivity_ratio": 0.20991043958804284,
+              "mean_within_state_pred_std": 0.007063018822267517,
+              "mean_within_state_real_std": 0.03364777300323394
+            }
+          },
+          "wall_time_sec": 32.8325543
+        },
+        "hist_gradient_boosting": {
+          "per_horizon": {
+            "5": {
+              "n_groups": 240,
+              "spearman_mean": 0.04377817267123886,
+              "spearman_std": 0.32921609098084686,
+              "kendall_mean": 0.03480782379574585,
+              "kendall_std": 0.264353538973761,
+              "significant_fraction": 0.08045977011494253,
+              "oracle_hit_rate": 0.1375,
+              "regret_mean": 0.05090852260386196,
+              "regret_median": 0.007709180065246884,
+              "oracle_gap_mean": 0.05518161792785537,
+              "top_k_hit_rate": {
+                "1": 0.1375,
+                "3": 0.38333333333333336,
+                "5": 0.55
+              },
+              "action_sensitivity_ratio": 0.06911612812364945,
+              "mean_within_state_pred_std": 0.0021002769637583508,
+              "mean_within_state_real_std": 0.030387653660241702
+            },
+            "10": {
+              "n_groups": 240,
+              "spearman_mean": 0.0422648276946689,
+              "spearman_std": 0.2766509375361486,
+              "kendall_mean": 0.03432624818948988,
+              "kendall_std": 0.22126735805109352,
+              "significant_fraction": 0.022727272727272728,
+              "oracle_hit_rate": 0.08333333333333333,
+              "regret_mean": 0.05765294979761324,
+              "regret_median": 0.010947724381791257,
+              "oracle_gap_mean": 0.05927554974656278,
+              "top_k_hit_rate": {
+                "1": 0.08333333333333333,
+                "3": 0.3416666666666667,
+                "5": 0.5375
+              },
+              "action_sensitivity_ratio": 0.06313992660503316,
+              "mean_within_state_pred_std": 0.0020911533915087105,
+              "mean_within_state_real_std": 0.03311935100257173
+            },
+            "20": {
+              "n_groups": 240,
+              "spearman_mean": 0.012365343965924536,
+              "spearman_std": 0.31072225730913666,
+              "kendall_mean": 0.011570419742858329,
+              "kendall_std": 0.23561538226575132,
+              "significant_fraction": 0.059782608695652176,
+              "oracle_hit_rate": 0.10416666666666667,
+              "regret_mean": 0.056837676928183506,
+              "regret_median": 0.015215504404282255,
+              "oracle_gap_mean": 0.06443623126334329,
+              "top_k_hit_rate": {
+                "1": 0.10416666666666667,
+                "3": 0.2875,
+                "5": 0.5208333333333334
+              },
+              "action_sensitivity_ratio": 0.10544071940957524,
+              "mean_within_state_pred_std": 0.0035478453919910707,
+              "mean_within_state_real_std": 0.03364777300323394
+            }
+          },
+          "wall_time_sec": 2.2485757999999976
+        }
+      }
+    }
+  }
+}
