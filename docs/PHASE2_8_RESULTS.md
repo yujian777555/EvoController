@@ -43,7 +43,85 @@ If oracle models succeed, the issue is objective optimization."
 继续投入排序损失（RQ2）或 action encoder（RQ3）**只能把 sensitivity 从 0.001 拉到 0.21，
 不能把排序从随机拉到有效**——因为后者的瓶颈不在这里。
 
-## 对后续的直接含义
+## Task 2（Action Identifiability Audit）—— 已完成
+
+工具：`experiments/action_identifiability_audit.py`；
+工件：`results/phase2_75d/action_identifiability.json`。
+数据与划分同 Task 1（1200 状态，960/240，state 级）。
+
+### 子任务 1：action effect variance / rollout noise / SNR
+
+| horizon | action var | rollout noise | SNR（池化） | 每状态 SNR 中位 | SNR > 1 的状态占比 | SNR > 3 占比 |
+|---|---|---|---|---|---|---|
+| h=5 | 0.000537 | 0.000286 | 1.88 | 1.70 | 0.66 | — |
+| h=10 | 0.001726 | 0.000562 | 3.07 | 3.00 | 0.78 | — |
+| h=20 | 0.005892 | 0.001221 | **4.82** | **6.27** | **0.89** | 见工件 |
+
+**信号不弱**：h=20 时 89% 的状态内 action 效应超过重复噪声（SNR > 1），
+中位 SNR 6.27。这与 Phase 2.75D 中"信号存在但未被捕获"一致。
+
+### 子任务 2：action-only 可学性（关键对照实验）
+
+| 输入子集 | OLS ρ (h=5/10/20) | RF ρ | HGB ρ |
+|---|---|---|---|
+| **action_only** | 0.059 / 0.031 / 0.044 | 0.001 / 0.046 / 0.019 | 0.023 / 0.059 / 0.055 |
+| **state_only** | **None**（退化） | None | None |
+| concat | 0.060 / 0.031 / 0.043 | 0.024 / 0.048 / 0.035 | 0.044 / 0.042 / 0.012 |
+
+**两个关键事实**：
+
+1. **state-only 无法完成 within-state 排序**（预测在状态内恒定 → 相关系数无定义）。
+   这从构造上证明了：**状态信息本身对"同状态下哪个动作更好"没有贡献**，
+   排序信息**只可能**来自 action 通道。
+2. **action-only ≈ concat**（OLS 0.059 vs 0.060 @ h=5）：加入 60 维状态块
+   **没有带来任何增益**。结合 Phase 2.75D 的 action-sensitivity 0.001，
+   说明此前的失败既不是"state 淹没 action"，也不只是优化问题——
+   **action 通道本身的信息量就是接近噪声水平的**。
+
+### 子任务 3：pairwise action ranking（偏好学习）
+
+| horizon | logistic acc / AUC / win-count Kendall | RF acc / AUC / Kendall |
+|---|---|---|
+| h=5 | 0.5215 / 0.5203 / 0.158 | 0.5032 / 0.5020 / 0.148 |
+| h=10 | 0.5369 / 0.5227 / 0.163 | 0.4996 / 0.4985 / 0.149 |
+| h=20 | 0.5223 / **0.5248** / 0.143 | 0.5066 / 0.5121 / **0.167** |
+
+**pairwise 判别接近随机**（AUC 0.498–0.525，准确率 0.50–0.54），
+但**用胜场数聚合出的状态内排序有稳定的弱正相关**（Kendall 0.14–0.17）——
+即单个动作对几乎不可分，累积多个弱比较后才出现轻微序信息。
+
+### 决策门判定（计划书 Task 2 的 Decision Gate）
+
+计划书的分支是：
+
+- 若 oracle 排序仍随机 **且 SNR 低** ⇒ "action credit assignment 受限于弱干预信号"
+- 若 oracle 排序成功 ⇒ 继续改进表示/目标
+
+**实测落在两者之间，但更接近后者**：
+
+| 判据 | 实测 | 结论 |
+|---|---|---|
+| SNR 是否低？ | **否**（h=20 池化 4.82，89% 状态 > 1） | 干预信号**不弱** |
+| oracle 排序是否完全随机？ | **不完全**：pairwise AUC 0.52、win-count Kendall 0.15；但回归 ρ ≈ 0.05 | **弱正信号，效应量极小** |
+
+**综合结论**：失败的主因是**动作可辨识性（identifiability）而非干预信号弱**。
+action 通道携带的信息量只够支撑"极其微弱的偏好信号"（AUC 0.52 ≈ 效应量 d≈0.07），
+远不足以支撑一个可靠的 planner。**这解释了为什么排序损失（Task 3 of the plan）
+即使实现正确也只能把 ρ 从 0 提到 ~0.15 量级。**
+
+**因此建议**：
+1. **不要投入 Task 4（表示消融）与更大的模型**——上界已由非神经基线界定（ρ ≲ 0.06，
+   pairwise AUC ≈ 0.52），换架构不会突破它；
+2. **论文方向转向"evolutionary action credit assignment 的可辨识性限制"**——
+   这是一个有价值且证据充分的结论：在标准 ZDT 干预协议与 compact 表示下，
+   动作的长期因果效应**可测量但几乎不可辨识**（SNR 4.8 却 pairwise AUC 0.52）；
+3. 若要继续技术路线，必须先**改变干预设计本身**（而非学习方法），例如：
+   - 在同一状态下比较**极端的动作对比**（而非 12 个随机采样动作），
+     先确认在"最大对比"下 pairwise AUC 能显著高于 0.5；
+   - 延长 horizon 至 50–100 代（当前 h=20 的 SNR 仍在上升，未见饱和）；
+   - 增加重复数（当前 3）以降低 rollout 噪声占比。
+
+
 
 1. **Task 2（排序损失）与 Task 3（action encoder）应当降级为"次要"**：
    它们能解决 sensitivity 问题（有价值，且 MLP 的 0.001 本身是缺陷），
